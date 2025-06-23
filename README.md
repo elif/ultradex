@@ -16,7 +16,7 @@ This project is currently in the planning and requirements definition phase.
 
 ## Documentation
 
-*   **Requirements:** For a detailed breakdown of all planned features and technical specifications, please see [REQUIREMENTS.md](REQUIREMENTS.md).
+*   **Requirements:** For a significantly expanded and detailed breakdown of all planned features, data models, technical specifications, and design considerations, please see [REQUIREMENTS.md](REQUIREMENTS.md). This document has been updated to reflect a richer feature set.
 
 ## Contributing
 
