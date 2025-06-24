@@ -1,6 +1,6 @@
 ## Data Handling and Storage
 
-The UltrAdex project will exclusively use Redis for all data storage. This includes card data, user collections, and any other persistent information.
+The UltrAdex project will exclusively use **Redis Stack** for all data storage, leveraging its capabilities like RedisJSON for structured data and Redis Search for advanced querying. All data, including card information, user collections, and any other persistent information, will reside in Redis.
 
 ### Card UUID (Identifier)
 
@@ -23,7 +23,7 @@ A custom UUID format will be used for uniquely identifying each card printing. T
 
 ### Redis Data Structures and Keying Scheme
 
-The following structures and keying patterns will be used:
+The following structures and keying patterns will be used. For a complete and authoritative list of all data structures, indexes (such as those for Pokémon, sets, illustrators, and chronological set ordering via `sets_by_release_number`), and their detailed definitions, please refer to `REQUIREMENTS.md` (Section 2.3). The `card_name_words` index has been removed in favor of Redis Search.
 
 *   **Card Details**: Stored in Redis Hashes.
     *   **Key**: `card:[uuid]` (e.g., `card:123-025-R-S`)
@@ -31,7 +31,7 @@ The following structures and keying patterns will be used:
 *   **Set Information**: Stored in Redis Hashes.
     *   **Key**: `set:[original_set_id]` (e.g., `set:swsh9`, `set:base1`)
     *   **Fields**: `set_name`, `series_name`, `release_date`, `release_number` (the chronological `set_release_number` used in the card UUID), `original_set_id`, `total_cards` (optional, official number of cards in the set).
-    *   *Note*: To enable chronological browsing and querying of sets by their release order, the system uses a sorted set defined in `REQUIREMENTS.md`: `idx:sets_by_release_number`. This index maps `release_number` (as score) to `original_set_id` (as member).
+    *   *Note*: To enable chronological browsing and querying of sets by their release order, the system uses a sorted set `sets_by_release_number` as defined in `REQUIREMENTS.md`. This index maps `release_number` (as score) to `original_set_id` (as member).
 *   **Pokémon to Cards Index**: Redis Sets. Allows finding all card UUIDs for a given Pokémon.
     *   **Key**: `pokemon_cards:[national_pokedex_number]` (e.g., `pokemon_cards:025`)
     *   **Members**: Set of `[card_uuid]`
@@ -50,7 +50,7 @@ The following structures and keying patterns will be used:
 *   **User Owned Cards in Collection**: Redis Sets. Stores the UUIDs of cards a user owns for a specific collection.
     *   **Key**: `user:[user_id]:collection_cards:[collection_name_slug]`
     *   **Structure**: This is defined in detail in `REQUIREMENTS.md`.
-    *   *Note*: The model for user-owned cards and collection tracking has been finalized in `REQUIREMENTS.md` (Section 2.3.3 and 2.4.1). It uses a Redis Hash for `user:[user_id]:collection_cards:[collection_slug]` to store `card_uuid`s as fields and their collection-specific details (condition, price, etc.) as JSON values. Please refer to `REQUIREMENTS.md` for the authoritative data structures and Lua script definitions. The details below regarding a simple Set and related Lua scripts are superseded.
+    *   *Note*: The model for user-owned cards and collection tracking has been finalized in `REQUIREMENTS.md` (Section 2.3.3 and 2.4.1). It uses a **RedisJSON Document** for the key `user:[user_id]:collection_cards:[collection_slug]`. Within this document, top-level keys are `card_uuid`s, and their values are JSON objects containing collection-specific card details (condition, price, etc.). Please refer to `REQUIREMENTS.md` for the authoritative data structures and Lua script definitions. The details below regarding a simple Set or Redis Hash for this key are superseded.
 
 ### Redis Abstraction Layer (Lua Scripts)
 
@@ -70,6 +70,5 @@ Key Lua scripts to be developed (Card and Set Management - still relevant):
 *   **Set Management:**
     *   `add_set(set_id, set_data_json)`: Adds a new set, including its `release_number`. (See `script:add_set` in `REQUIREMENTS.md`)
     *   `get_set(set_id)`: Retrieves details for a set. (See `script:get_set` in `REQUIREMENTS.md`)
-    *   `get_next_release_number()`: Atomically increments and returns the next available `set_release_number`. (See `script:get_next_set_release_number` in `REQUIREMENTS.md`)
 
 These scripts will encapsulate the logic for interacting with the defined Redis keys and structures, promoting data integrity and simplifying application-level code.

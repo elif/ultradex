@@ -15,7 +15,6 @@
 -- - pokemon_cards:[national_pokedex_number]
 -- - set_cards:[original_set_id]
 -- - illustrator_cards:[normalized_illustrator_name]
--- - card_name_words:[word_token]
 
 local card_uuid = KEYS[1]
 local card_data_json = ARGV[1]
@@ -64,14 +63,6 @@ if illustrator_name then
   end
 end
 
-local card_name = card_data["card_name"]
-if card_name then
-  local normalized_card_name = string.lower(tostring(card_name))
-  for word in string.gmatch(normalized_card_name, "[%a%d]+") do -- Match alphanumeric words
-    if string.len(word) > 2 then
-        redis.call("SADD", "card_name_words:" .. word, card_uuid)
-    end
-  end
-end
+-- Logic for card_name_words index removed as per decision to use Redis Search.
 
 return "OK"
