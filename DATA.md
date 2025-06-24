@@ -49,33 +49,27 @@ The following structures and keying patterns will be used:
     *   **Fields**: `display_name`, `target_pokemon_species (JSON array of names or pokedex_numbers)`, `creation_date`, `description`.
 *   **User Owned Cards in Collection**: Redis Sets. Stores the UUIDs of cards a user owns for a specific collection.
     *   **Key**: `user:[user_id]:collection_cards:[collection_name_slug]`
-    *   **Members**: Set of `[card_uuid]`
-    *   *Note*: For simplicity, this model assumes a user either owns a unique card printing (as defined by the UUID) or they don't within a collection. Tracking multiple copies of the exact same UUID with different conditions, purchase prices etc., would require a more complex structure (e.g., a list of JSON objects or additional Hashes per owned card instance). The current `REQUIREMENTS.md` implies more detailed tracking per owned instance, which would need `user:[user_id]:owned_instance:[uuid]:[instance_id]` storing a Hash of details. For this `AGENTS.md`, we'll stick to the simpler model and assume detailed instance tracking is an application layer concern built on top if needed, or that the Lua scripts will handle that complexity.
+    *   **Structure**: This is defined in detail in `REQUIREMENTS.md`.
+    *   *Note*: The model for user-owned cards and collection tracking has been finalized in `REQUIREMENTS.md` (Section 2.3.3 and 2.4.1). It uses a Redis Hash for `user:[user_id]:collection_cards:[collection_slug]` to store `card_uuid`s as fields and their collection-specific details (condition, price, etc.) as JSON values. Please refer to `REQUIREMENTS.md` for the authoritative data structures and Lua script definitions. The details below regarding a simple Set and related Lua scripts are superseded.
 
 ### Redis Abstraction Layer (Lua Scripts)
 
 To ensure controlled and consistent access to the data, all interactions with Redis should be performed through a defined set of Lua scripts (Redis stored procedures). This provides an abstraction layer and allows for complex atomic operations.
 
-Key Lua scripts to be developed:
+**For all User and Collection Management Lua scripts, please refer to `REQUIREMENTS.md` (Section 2.4.1) for the definitive list and specifications.** The list previously here is outdated.
+
+Key Lua scripts to be developed (Card and Set Management - still relevant):
 
 *   **Card Management:**
-    *   `add_card(uuid, card_data_json)`: Adds a new card. Updates relevant indexes (pokemon, set, illustrator). `card_data_json` is a JSON string of all card attributes.
-    *   `get_card(uuid)`: Retrieves all details for a specific card UUID. Returns a JSON string or map.
-    *   `update_card_price(uuid, price_usd, timestamp)`: Updates pricing information for a card.
-    *   `find_cards_by_pokemon(pokedex_number)`: Returns a list of card UUIDs for a given Pokémon.
-    *   `find_cards_by_set(set_id)`: Returns a list of card UUIDs for a given set.
-    *   `find_cards_by_illustrator(illustrator_name)`: Returns a list of card UUIDs for a given illustrator.
+    *   `add_card(uuid, card_data_json)`: Adds a new card. Updates relevant indexes (pokemon, set, illustrator). `card_data_json` is a JSON string of all card attributes. (See `script:add_card` in `REQUIREMENTS.md`)
+    *   `get_card(uuid)`: Retrieves all details for a specific card UUID. Returns a JSON string or map. (See `script:get_card` in `REQUIREMENTS.md`)
+    *   `update_card_price(uuid, price_usd, timestamp)`: Updates pricing information for a card. (See `script:update_card_price` in `REQUIREMENTS.md`)
+    *   `find_cards_by_pokemon(pokedex_number)`: Returns a list of card UUIDs for a given Pokémon. (See `script:find_cards_by_pokemon` in `REQUIREMENTS.md`)
+    *   `find_cards_by_set(set_id)`: Returns a list of card UUIDs for a given set. (See `script:find_cards_by_set` in `REQUIREMENTS.md`)
+    *   `find_cards_by_illustrator(illustrator_name)`: Returns a list of card UUIDs for a given illustrator. (See `script:find_cards_by_illustrator` in `REQUIREMENTS.md`)
 *   **Set Management:**
-    *   `add_set(set_id, set_data_json)`: Adds a new set, including its `release_number`.
-    *   `get_set(set_id)`: Retrieves details for a set.
-    *   `get_next_release_number()`: Atomically increments and returns the next available `set_release_number`.
-*   **User and Collection Management (if accounts are implemented):**
-    *   `create_user(user_data_json)`: Creates a new user.
-    *   `get_user(user_id)`: Retrieves user details.
-    *   `create_collection(user_id, collection_name_slug, collection_data_json)`: Creates a new collection for a user.
-    *   `add_card_to_collection(user_id, collection_name_slug, card_uuid)`: Adds a card to a user's collection.
-    *   `remove_card_from_collection(user_id, collection_name_slug, card_uuid)`: Removes a card from a user's collection.
-    *   `get_collection_cards(user_id, collection_name_slug)`: Retrieves all card UUIDs in a user's collection.
-    *   `get_user_collections(user_id)`: Retrieves metadata for all collections of a user.
+    *   `add_set(set_id, set_data_json)`: Adds a new set, including its `release_number`. (See `script:add_set` in `REQUIREMENTS.md`)
+    *   `get_set(set_id)`: Retrieves details for a set. (See `script:get_set` in `REQUIREMENTS.md`)
+    *   `get_next_release_number()`: Atomically increments and returns the next available `set_release_number`. (See `script:get_next_set_release_number` in `REQUIREMENTS.md`)
 
 These scripts will encapsulate the logic for interacting with the defined Redis keys and structures, promoting data integrity and simplifying application-level code.

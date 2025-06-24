@@ -121,24 +121,19 @@ This data is stored per user and requires user identification.
     *   **Key**: `user:[user_id]:collection_meta:[collection_slug]` (e.g., `user:xyz789:collection_meta:my-pikachu-set`)
         *   `collection_slug` should be a URL-friendly version of the collection name.
     *   **Fields**: `display_name` (e.g., "My Pikachu Set"), `target_pokemon_pokedex_numbers_json` (JSON array of Pokédex numbers), `creation_date`, `description`, `last_updated`.
-*   **User Owned Card Instances**: This structure supports tracking individual copies with their specific details as per original requirements. Stored in Redis Hashes.
-    *   **Key**: `user:[user_id]:owned_instance:[card_uuid]:[instance_id]`
-        *   `instance_id`: A unique ID for this specific copy owned by the user (e.g., a timestamp, or a simple counter like `1`, `2`). This allows a user to own multiple copies of the *same* `card_uuid` but track them separately.
-    *   **Fields**:
-        *   `collection_slugs_json`: JSON array of collection slugs this instance belongs to (a card can be in multiple "master sets" a user defines).
-        *   `quantity`: Typically 1 for unique instance tracking. If not using `instance_id` for true uniqueness but rather for "versions" of an owned card, this could be >1. For precise per-copy tracking, `quantity` on this hash should be 1.
-        *   `condition`: (e.g., "Near Mint")
-        *   `language_owned`: (e.g., "English")
-        *   `purchase_price`: (e.g., `10.50`)
-        *   `purchase_date`: (e.g., "2023-01-15")
-        *   `user_notes_on_owned_card`: (e.g., "Graded PSA 9")
-        *   `added_to_collection_date`: Timestamp.
 *   **Index: User's Collections**: Redis Set. Stores slugs of all collections for a user.
     *   **Key**: `user:[user_id]:collections`
     *   **Members**: Set of `[collection_slug]`
-*   **Index: Cards in User Collection**: Redis Set. Links a collection to the `card_uuid`s it contains (regardless of how many instances of that `card_uuid` the user owns). This is for quickly knowing which *unique printings* are in a collection.
+*   **User Collection Cards & Details**: Redis Hash. Stores the cards within a specific user collection and their ownership details for that card *within that collection*. A `card_uuid` can only appear once as a field in this hash, signifying its unique presence in the collection.
     *   **Key**: `user:[user_id]:collection_cards:[collection_slug]`
-    *   **Members**: Set of `[card_uuid]` (unique card printings).
+    *   **Fields (within the Hash)**: `[card_uuid]` (the unique identifier for the card printing)
+    *   **Value (for each field)**: A JSON string containing the following attributes for the card *within this specific collection*:
+        *   `condition`: (e.g., "Near Mint", "Played", "Damaged") - User-defined condition of this card in this collection.
+        *   `language_owned`: (e.g., "English", "Japanese") - Language of this card in this collection.
+        *   `purchase_price`: (e.g., `10.50`) - Price paid for this card, if applicable to its entry in this collection.
+        *   `purchase_date`: (e.g., "2023-01-15") - Date acquired, if applicable to its entry in this collection.
+        *   `user_notes_on_owned_card`: (e.g., "Graded PSA 9", "From childhood binder") - User's notes specific to this card in this collection.
+        *   `added_to_collection_date`: Timestamp - When the card was added to this specific collection.
 
 ### 2.4. Data Abstraction Layer (Redis Lua Scripts)
 
@@ -167,24 +162,32 @@ All data access (read, write, update, delete) to Redis MUST be performed through
 *   **User & Collection Management Scripts:**
     *   `script:create_user_collection(keys_json, args_json)`:
         *   KEYS: `user:[user_id]:collection_meta:[collection_slug]`, `user:[user_id]:collections`.
-        *   ARGS: `user_id`, `collection_slug`, collection metadata JSON.
-        *   Logic: Creates metadata hash, adds slug to user's list of collections.
-    *   `script:add_owned_card_instance(keys_json, args_json)`:
-        *   KEYS: `user:[user_id]:owned_instance:[card_uuid]:[instance_id]`, `user:[user_id]:collection_cards:[collection_slug]` (for each collection it's in).
-        *   ARGS: `user_id`, `card_uuid`, `instance_id`, owned instance data JSON (including `collection_slugs_json`).
-        *   Logic: Creates the owned instance hash. Adds `card_uuid` to the `collection_cards` set for each specified collection if not already present.
-    *   `script:remove_owned_card_instance(keys_json, args_json)`:
-        *   KEYS: `user:[user_id]:owned_instance:[card_uuid]:[instance_id]`, potentially `user:[user_id]:collection_cards:[collection_slug]` if this is the last instance of a card_uuid in a collection.
-        *   ARGS: `user_id`, `card_uuid`, `instance_id`.
-        *   Logic: Deletes the instance hash. May need logic to check if `card_uuid` should be removed from `collection_cards` if no other instances of this `card_uuid` exist for that collection.
-    *   `script:get_collection_details(keys_json, args_json)`:
-        *   KEYS: `user:[user_id]:collection_meta:[collection_slug]`, `user:[user_id]:collection_cards:[collection_slug]`.
+        *   ARGS: `user_id`, `collection_slug`, collection metadata JSON (for `display_name`, `target_pokemon_pokedex_numbers_json`, `description`).
+        *   Logic: Creates the collection metadata hash and adds the `collection_slug` to the user's set of collections.
+    *   `script:add_card_to_collection(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
+        *   ARGS: `user_id`, `collection_slug`, `card_uuid`, `details_json` (JSON string with: `condition`, `language_owned`, `purchase_price`, `purchase_date`, `user_notes_on_owned_card`, `added_to_collection_date`).
+        *   Logic: Uses `HSET` to add or update the `card_uuid` with its `details_json` in the specified user's collection hash.
+    *   `script:remove_card_from_collection(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
+        *   ARGS: `user_id`, `collection_slug`, `card_uuid`.
+        *   Logic: Uses `HDEL` to remove the `card_uuid` (and its details) from the specified user's collection hash.
+    *   `script:get_card_in_collection(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
+        *   ARGS: `user_id`, `collection_slug`, `card_uuid`.
+        *   Logic: Uses `HGET` to retrieve the `details_json` for the specified `card_uuid` from the user's collection hash. Returns the JSON string.
+    *   `script:get_collection_cards(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
         *   ARGS: `user_id`, `collection_slug`.
-        *   Logic: Returns metadata and the set of unique `card_uuid`s in the collection. To get all *instances*, further calls to get `owned_instance` hashes would be needed by the application, or a more complex script.
-    *   `script:get_all_owned_instances_for_card_in_collection(keys_json, args_json)`: (More advanced)
-        *   KEYS: Scan `user:[user_id]:owned_instance:[card_uuid]:*`
-        *   ARGS: `user_id`, `card_uuid`, `collection_slug`
-        *   Logic: Iterates through instances of a `card_uuid` for a user, filters by `collection_slug` in their `collection_slugs_json` field.
+        *   Logic: Uses `HGETALL` to retrieve all `card_uuid`s (fields) and their `details_json` (values) from the specified user's collection hash. Returns a list of alternating fields and values.
+    *   `script:update_card_in_collection(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
+        *   ARGS: `user_id`, `collection_slug`, `card_uuid`, `details_json` (JSON string with updated details).
+        *   Logic: Uses `HSET` (same as `script:add_card_to_collection`) to update the `details_json` for an existing `card_uuid` in the collection hash. If the card is not already in the collection, it will be added.
+    *   `script:get_user_collections_metadata(keys_json, args_json)`: (To list all collections for a user)
+        *   KEYS: `user:[user_id]:collections` (the Set of collection slugs)
+        *   ARGS: `user_id`
+        *   Logic: Uses `SMEMBERS` to get all `collection_slug`s. The application would then iterate these slugs to fetch metadata for each using `user:[user_id]:collection_meta:[collection_slug]` if needed (or a more complex script could do this).
 
 This list is not exhaustive but illustrates the principle. The Ruby on Rails application backend will be responsible for loading these Lua scripts into Redis (e.g., during an initialization phase or on-demand) and calling them with appropriate arguments using a Ruby Redis client like `redis-rb`.
 
