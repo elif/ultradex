@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     libpq-dev \
-    # Dependencies for Ruby compilation
+    # Dependencies for Ruby compilation (some still needed by RVM or gems)
     libssl-dev \
     zlib1g-dev \
     libreadline-dev \
@@ -32,6 +32,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxslt1-dev \
     # Dependencies for image processing gems (e.g., 'mini_magick' or 'rmagick')
     imagemagick \
+    # For RVM installation and SSL certs
+    gnupg \
+    ca-certificates \
     # Clean up apt cache to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
