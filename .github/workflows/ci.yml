@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Compose and Build services
+        working-directory: ./ultradex
+        run: |
+          docker compose build
+          docker compose up -d
+
+      - name: Prepare test database
+        working-directory: ./ultradex
+        run: |
+          echo "Waiting for services to be healthy..."
+          # Add a short delay or a more sophisticated wait for services like PostgreSQL
+          # For now, a simple sleep. This might need refinement.
+          sleep 20
+          docker compose exec -T app bin/rails db:setup
+
+      - name: Run RSpec tests
+        working-directory: ./ultradex
+        run: |
+          docker compose exec -T app bundle exec rspec
+
+      - name: Stop Docker services
+        if: always() # Ensure services are stopped even if previous steps fail
+        working-directory: ./ultradex
+        run: |
+          docker compose down
