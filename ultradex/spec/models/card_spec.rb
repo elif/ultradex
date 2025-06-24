@@ -53,7 +53,7 @@ RSpec.describe Card, type: :model do
 
   describe ".find" do
     context "when the card exists" do
-      it "returns a Card instance with correct attributes" do
+      it "returns a Card instance with correct attributes", core_redis_op: true do
         Card.create(valid_attributes) # Create card first
         card = Card.find(valid_attributes[:card_uuid])
 
@@ -84,7 +84,7 @@ RSpec.describe Card, type: :model do
 
   describe ".create" do
     context "with valid attributes and explicit card_uuid" do
-      it "creates a card in Redis and returns a Card instance" do
+      it "creates a card in Redis and returns a Card instance", core_redis_op: true do
         card = Card.create(valid_attributes)
         expect(card).to be_a(Card)
         expect(card.errors).to be_empty
@@ -144,7 +144,7 @@ RSpec.describe Card, type: :model do
     let!(:card3) { Card.create(valid_attributes.merge(card_uuid: "2-006-N-S", national_pokedex_number: "006", original_set_id: "base2", illustrator_name: "Mitsuhiro Arita", card_name: "Charizard")) }
 
     describe ".find_by_pokemon" do
-      it "returns cards matching the Pokédex number" do
+      it "returns cards matching the Pokédex number", core_redis_op: true do
         cards = Card.find_by_pokemon("025")
         expect(cards.map(&:card_uuid)).to match_array(["1-025-N-S", "1-025-H-S"])
       end
@@ -181,7 +181,7 @@ RSpec.describe Card, type: :model do
   describe "#update_price" do
     let!(:card) { Card.create(valid_attributes) }
 
-    it "updates the card's price in Redis and on the instance" do
+    it "updates the card's price in Redis and on the instance", core_redis_op: true do
       timestamp = Time.now.to_i + 3600
       expect(card.update_price(5.99, timestamp)).to be true
       expect(card.approximate_price_usd).to eq(5.99)
@@ -210,7 +210,7 @@ RSpec.describe Card, type: :model do
     context "when updating an existing card" do
       let!(:card) { Card.create(valid_attributes) }
 
-      it "updates attributes in Redis and returns true" do
+      it "updates attributes in Redis and returns true", core_redis_op: true do
         card.card_name = "Pikachu (Updated)"
         card.hp = 50
         expect(card.save).to be true

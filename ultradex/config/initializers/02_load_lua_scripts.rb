@@ -13,7 +13,9 @@ Rails.application.config.after_initialize do
                         (defined?(Rails::TestUnitReporter) && Rails.env.test?) || # Minitest
                         (defined?(RSpec) && Rails.env.test?) # RSpec
 
-  if should_load_scripts
+  if defined?($RUNNING_VIA_CUSTOM_SCRIPT) && $RUNNING_VIA_CUSTOM_SCRIPT
+    Rails.logger.info "02_load_lua_scripts.rb: Detected execution via custom script. Skipping automatic Lua script loading as script handles it."
+  elsif should_load_scripts
     if Rails.application.config.try(:redis_client)
       begin
         # Attempt a simple command to ensure Redis is responsive before loading scripts
