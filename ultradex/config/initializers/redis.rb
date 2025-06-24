@@ -11,26 +11,7 @@ redis_url = ENV.fetch('REDIS_URL') { 'redis://localhost:6379/0' }
 # $redis = Redis.new(url: redis_url)
 
 # Or, to make it available through Rails.application.config
-if defined?($RUNNING_VIA_CUSTOM_SCRIPT) && $RUNNING_VIA_CUSTOM_SCRIPT && Rails.application.config.redis_client
-  # If running via the custom script and the script has already set a Redis client (e.g. from --redis-url option),
-  # trust that setup and don't overwrite it.
-  # The script sets ENV['REDIS_URL'], which this initializer will pick up if the client isn't pre-set.
-  # This check provides an additional layer of safety if the script directly sets Rails.application.config.redis_client.
-  if Rails.application.config.redis_client.options[:url] == redis_url
-    puts "Redis initializer: Custom script detected. Using pre-configured redis_client for matching URL: #{redis_url}" if Rails.env.development?
-  else
-    puts "Redis initializer: Custom script detected, but pre-configured redis_client URL does not match ENV REDIS_URL. Re-initializing." if Rails.env.development?
-    # This case is tricky: if script set a client to X, but ENV['REDIS_URL'] (which this file uses) is Y.
-    # The script currently sets ENV['REDIS_URL'] to its option, so they should match.
-    # For safety, if they somehow diverge, let this initializer's logic based on ENV['REDIS_URL'] take precedence.
-    Rails.application.config.redis_client = Redis.new(url: redis_url)
-  end
-else
-  # Standard behavior: create a new Redis client.
-  # This will also be the path if the custom script sets ENV['REDIS_URL'] and relies on this initializer
-  # to create the client, rather than pre-setting Rails.application.config.redis_client itself.
-  Rails.application.config.redis_client = Redis.new(url: redis_url)
-end
+Rails.application.config.redis_client = Redis.new(url: redis_url)
 
 # You can then access it via Rails.application.config.redis_client
 

@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: . # Use the Dockerfile in the current directory (ultradex/)
+      dockerfile: Dockerfile
+    # The Dockerfile's CMD is `bundle exec rails server -b 0.0.0.0`
+    # If you need to override or run one-off commands:
+    # command: bundle exec rails server -b 0.0.0.0
+    volumes:
+      - .:/usr/src/app # Mount current directory to app's workdir for live code changes
+      - bundle_cache:/usr/local/bundle # Persist bundle cache
+      # If you have other persisted volumes for the app, define them here.
+    ports:
+      - "3000:3000" # Rails app
+      - "6379:6379" # Redis (running in the app container)
+    environment:
+      - RAILS_ENV=${RAILS_ENV:-development}
+      - REDIS_URL=redis://localhost:6379/0 # Redis is in the same container
+      - DATABASE_URL=postgresql://ultradex_user:ultradex_password@db:5432/ultradex_development
+      - POSTGRES_HOST=db
+      - POSTGRES_USER=ultradex_user
+      - POSTGRES_PASSWORD=ultradex_password
+      - BOOTSNAP_CACHE_DIR=/usr/local/bundle/bootsnap # Store bootsnap cache in persisted volume
+      # Add any other ENV variables your app needs
+    depends_on:
+      db:
+        condition: service_healthy # Wait for PostgreSQL to be healthy
+    # stdin_open: true # if you need to attach and use pry/debug
+    # tty: true
+
+  db:
+    image: postgres:14-alpine # Using Alpine for a smaller image
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persist PostgreSQL data
+    ports:
+      - "5432:5432" # Expose PostgreSQL port to host (optional, for debugging/external tools)
+    environment:
+      - POSTGRES_DB=ultradex_development
+      - POSTGRES_USER=ultradex_user
+      - POSTGRES_PASSWORD=ultradex_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ultradex_user -d ultradex_development"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  bundle_cache:
