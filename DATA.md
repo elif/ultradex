@@ -29,14 +29,14 @@ The following structures and keying patterns will be used:
     *   **Key**: `card:[uuid]` (e.g., `card:123-025-R-S`)
     *   **Fields**: `pokemon_species_name`, `card_name`, `national_pokedex_number` (redundant with UUID but useful for direct hash access), `set_id` (original set identifier like `swsh9`), `set_name`, `series_name`, `release_date`, `card_number_in_set`, `rarity`, `card_type`, `pokemon_types`, `hp`, `illustrator_name`, `image_url_small`, `image_url_large`, `approximate_price_usd`, `last_price_update_timestamp`, `notes`, `variant_code` (from UUID), `frame_code` (from UUID).
 *   **Set Information**: Stored in Redis Hashes.
-    *   **Key**: `set:[set_id]` (e.g., `set:swsh9`, `set:base1`) - Note: `REQUIREMENTS.md` uses `set:[original_set_id]`.
-    *   **Fields**: `set_name`, `series_name`, `release_date`, `release_number` (the chronological `set_release_number` used in the card UUID), `original_set_id`.
+    *   **Key**: `set:[original_set_id]` (e.g., `set:swsh9`, `set:base1`)
+    *   **Fields**: `set_name`, `series_name`, `release_date`, `release_number` (the chronological `set_release_number` used in the card UUID), `original_set_id`, `total_cards` (optional, official number of cards in the set).
     *   *Note*: To enable chronological browsing and querying of sets by their release order, the system uses a sorted set defined in `REQUIREMENTS.md`: `idx:sets_by_release_number`. This index maps `release_number` (as score) to `original_set_id` (as member).
 *   **Pokémon to Cards Index**: Redis Sets. Allows finding all card UUIDs for a given Pokémon.
-    *   **Key**: `pokemon_cards:[pokedex_number]` (e.g., `pokemon_cards:025`) - Note: `REQUIREMENTS.md` uses `idx:pokemon_cards:[national_pokedex_number]`.
+    *   **Key**: `pokemon_cards:[national_pokedex_number]` (e.g., `pokemon_cards:025`)
     *   **Members**: Set of `[card_uuid]`
 *   **Set to Cards Index**: Redis Sets. Allows finding all card UUIDs for a given set.
-    *   **Key**: `set_cards:[set_id]` (e.g., `set_cards:swsh9`)
+    *   **Key**: `set_cards:[original_set_id]` (e.g., `set_cards:swsh9`)
     *   **Members**: Set of `[card_uuid]`
 *   **Illustrator to Cards Index**: Redis Sets.
     *   **Key**: `illustrator_cards:[normalized_illustrator_name]` (e.g., `illustrator_cards:ken_sugimori`)

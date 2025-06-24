@@ -2,7 +2,7 @@
 -- Creates or updates a set's information and adds it to the release number index.
 --
 -- KEYS[1]: The key for the set's hash, e.g., set:swsh9
--- KEYS[2]: The key for the sorted set idx:sets_by_release_number
+-- KEYS[2]: The key for the sorted set sets_by_release_number
 --
 -- ARGV[1]: original_set_id (e.g., "swsh9")
 -- ARGV[2]: release_number (integer, e.g., 123)

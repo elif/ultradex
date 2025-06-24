@@ -3,7 +3,7 @@
 -- for sets within a given range of release_numbers (inclusive).
 -- Optionally returns scores (release_numbers).
 --
--- KEYS[1]: The key for the sorted set idx:sets_by_release_number
+-- KEYS[1]: The key for the sorted set sets_by_release_number
 -- ARGV[1]: min_release_number (inclusive)
 -- ARGV[2]: max_release_number (inclusive)
 -- ARGV[3]: (Optional) "WITHSCORES" string. If provided, scores are returned.
