@@ -1,4 +1,0 @@
-# This file is intentionally left empty.
-# It's used to ensure that the 'build_failures' directory is tracked by Git,
-# even if it's empty at times. This directory is used by GitHub Actions
-# to store logs from failed CI runs.
