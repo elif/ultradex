@@ -3,7 +3,7 @@
 -- ordered chronologically by release_number.
 -- Optionally returns scores (release_numbers).
 --
--- KEYS[1]: The key for the sorted set idx:sets_by_release_number
+-- KEYS[1]: The key for the sorted set sets_by_release_number
 -- ARGV[1]: (Optional) "WITHSCORES" string. If provided, scores are returned.
 --
 -- Returns: A list of original_set_ids, or original_set_ids and scores if WITHSCORES is specified.

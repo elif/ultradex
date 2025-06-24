@@ -97,16 +97,16 @@ This section details the Redis structures used to store UltrAdex data. All inter
 #### 2.3.2. Indexing Structures (Primarily Redis Sets):
 
 *   **Pokémon to Cards Index**:
-    *   **Key**: `idx:pokemon_cards:[national_pokedex_number]` (e.g., `idx:pokemon_cards:025`)
+    *   **Key**: `pokemon_cards:[national_pokedex_number]` (e.g., `pokemon_cards:025`)
     *   **Members**: Set of `[card_uuid]`
 *   **Set (Original ID) to Cards Index**:
-    *   **Key**: `idx:set_cards:[original_set_id]` (e.g., `idx:set_cards:swsh9`)
+    *   **Key**: `set_cards:[original_set_id]` (e.g., `set_cards:swsh9`)
     *   **Members**: Set of `[card_uuid]`
 *   **Illustrator to Cards Index**:
-    *   **Key**: `idx:illustrator_cards:[normalized_illustrator_name]` (e.g., `idx:illustrator_cards:ken_sugimori`)
+    *   **Key**: `illustrator_cards:[normalized_illustrator_name]` (e.g., `illustrator_cards:ken_sugimori`)
     *   **Members**: Set of `[card_uuid]`
 *   **Card Name Search Index (Simplified)**: While Redis is not a full-text search engine, simple name matching can be supported.
-    *   **Key**: `idx:card_name_words:[word_token]` (e.g., `idx:card_name_words:pikachu`, `idx:card_name_words:vmax`)
+    *   **Key**: `card_name_words:[word_token]` (e.g., `card_name_words:pikachu`, `card_name_words:vmax`)
     *   **Members**: Set of `[card_uuid]` that include this word in their `card_name`. (Requires preprocessing of card names).
     *   *Alternative*: Use Redis Search module for more advanced searching if available.
 
@@ -147,23 +147,23 @@ All data access (read, write, update, delete) to Redis MUST be performed through
 
 *   **Card & Set Management Scripts:**
     *   `script:add_card(keys_json, args_json)`:
-        *   KEYS: `card:[card_uuid]`, `idx:pokemon_cards:[pokedex_number]`, `idx:set_cards:[original_set_id]`, `idx:illustrator_cards:[norm_illustrator_name]`, relevant `idx:card_name_words:*`.
+        *   KEYS: `card:[card_uuid]`, `pokemon_cards:[national_pokedex_number]`, `set_cards:[original_set_id]`, `illustrator_cards:[normalized_illustrator_name]`, relevant `card_name_words:*`. (Note: `[pokedex_number]` was updated to `[national_pokedex_number]` for consistency with Sec 2.3.2)
         *   ARGS: `card_uuid`, all card data fields as a JSON string.
         *   Logic: Creates the card hash, adds UUID to all relevant indexes.
     *   `script:get_card(keys_json, args_json)`: KEYS: `card:[card_uuid]`. ARGS: `card_uuid`. Returns card hash.
     *   `script:update_card_price(keys_json, args_json)`: KEYS: `card:[card_uuid]`. ARGS: `card_uuid`, `new_price`, `timestamp`. Updates price fields.
-    *   `script:find_cards_by_pokemon(keys_json, args_json)`: KEYS: `idx:pokemon_cards:[pokedex_number]`. ARGS: `pokedex_number`. Returns set of `card_uuid`s.
+    *   `script:find_cards_by_pokemon(keys_json, args_json)`: KEYS: `pokemon_cards:[national_pokedex_number]`. ARGS: `national_pokedex_number`. Returns set of `card_uuid`s. (Note: `[pokedex_number]` updated to `[national_pokedex_number]` for consistency).
     *   `script:add_set(keys_json, args_json)`:
-        *   KEYS: `set:[original_set_id]`, `idx:sets_by_release_number`, (`global:next_set_release_number` - if this script is responsible for assigning a new number).
+        *   KEYS: `set:[original_set_id]`, `sets_by_release_number`, (`global:next_set_release_number` - if this script is responsible for assigning a new number).
         *   ARGS: `original_set_id`, `release_number`, `set_data_json` (JSON string of set fields like `set_name`, `series_name`, `release_date`).
         *   Logic: Creates/updates the set hash (`set:[original_set_id]`) with fields from `set_data_json` and the `release_number`. Adds the `original_set_id` to the `idx:sets_by_release_number` sorted set with `release_number` as its score using `ZADD`. If this script also assigns `release_number` from `global:next_set_release_number`, that logic is included.
     *   `script:get_next_set_release_number(keys_json, args_json)`: KEYS: `global:next_set_release_number`. ARGS: none. Returns `INCR global:next_set_release_number`.
     *   `script:get_all_sets_by_release_number(keys_json, args_json)`:
-        *   KEYS: `idx:sets_by_release_number`
+        *   KEYS: `sets_by_release_number`
         *   ARGS: (optional) `with_scores` (boolean true/false, or string "WITHSCORES")
         *   Logic: Uses `ZRANGE KEYS[1] 0 -1` (optionally with `WITHSCORES` if `ARGV[1]` is provided and true/set) to retrieve all `original_set_id`s, ordered by `release_number`.
     *   `script:get_sets_by_release_number_range(keys_json, args_json)`:
-        *   KEYS: `idx:sets_by_release_number`
+        *   KEYS: `sets_by_release_number`
         *   ARGS: `min_release_number`, `max_release_number`, (optional) `with_scores` (boolean true/false, or string "WITHSCORES")
         *   Logic: Uses `ZRANGEBYSCORE KEYS[1] ARGV[1] ARGV[2]` (optionally with `WITHSCORES` if `ARGV[3]` is provided and true/set) to retrieve `original_set_id`s within the specified `release_number` range.
 

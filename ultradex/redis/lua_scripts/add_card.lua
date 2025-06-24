@@ -10,6 +10,12 @@
 --   (and all other fields for the card hash)
 --
 -- Returns: "OK" on success, or an error string.
+--
+-- Implicitly interacts with index keys:
+-- - pokemon_cards:[national_pokedex_number]
+-- - set_cards:[original_set_id]
+-- - illustrator_cards:[normalized_illustrator_name]
+-- - card_name_words:[word_token]
 
 local card_uuid = KEYS[1]
 local card_data_json = ARGV[1]
@@ -40,12 +46,12 @@ redis.call("HMSET", unpack(hmset_args))
 -- Add to indexes
 local pokedex_number = card_data["national_pokedex_number"]
 if pokedex_number then
-  redis.call("SADD", "idx:pokemon_cards:" .. tostring(pokedex_number), card_uuid)
+  redis.call("SADD", "pokemon_cards:" .. tostring(pokedex_number), card_uuid)
 end
 
 local original_set_id = card_data["original_set_id"]
 if original_set_id then
-  redis.call("SADD", "idx:set_cards:" .. tostring(original_set_id), card_uuid)
+  redis.call("SADD", "set_cards:" .. tostring(original_set_id), card_uuid)
 end
 
 local illustrator_name = card_data["illustrator_name"]
@@ -54,7 +60,7 @@ if illustrator_name then
   normalized_illustrator = string.gsub(normalized_illustrator, "%s+", "_")
   normalized_illustrator = string.gsub(normalized_illustrator, "[^%w_]+", "")
   if normalized_illustrator ~= "" then
-    redis.call("SADD", "idx:illustrator_cards:" .. normalized_illustrator, card_uuid)
+    redis.call("SADD", "illustrator_cards:" .. normalized_illustrator, card_uuid)
   end
 end
 
@@ -63,7 +69,7 @@ if card_name then
   local normalized_card_name = string.lower(tostring(card_name))
   for word in string.gmatch(normalized_card_name, "[%a%d]+") do -- Match alphanumeric words
     if string.len(word) > 2 then
-        redis.call("SADD", "idx:card_name_words:" .. word, card_uuid)
+        redis.call("SADD", "card_name_words:" .. word, card_uuid)
     end
   end
 end
