@@ -15,8 +15,29 @@ jobs:
       - name: Set up Docker Compose and Build services
         working-directory: ./ultradex
         run: |
-          docker compose build
-          docker compose up -d
+          set -e # Ensure script exits on first error
+          echo "Running docker compose build..."
+          docker compose build > $GITHUB_WORKSPACE/docker_build_output.log 2>&1
+          BUILD_EXIT_CODE=$?
+          if [ $BUILD_EXIT_CODE -ne 0 ]; then
+            echo "Docker compose build failed with exit code $BUILD_EXIT_CODE. Full log:"
+            cat $GITHUB_WORKSPACE/docker_build_output.log
+            exit $BUILD_EXIT_CODE
+          fi
+          echo "Docker compose build successful."
+
+          echo "Running docker compose up -d..."
+          docker compose up -d > $GITHUB_WORKSPACE/docker_up_output.log 2>&1
+          UP_EXIT_CODE=$?
+          if [ $UP_EXIT_CODE -ne 0 ]; then
+            echo "Docker compose up -d failed with exit code $UP_EXIT_CODE. Full log:"
+            cat $GITHUB_WORKSPACE/docker_up_output.log
+            # Also output build log for context if up fails, as it might be related
+            echo "--- Docker Build Log (for context as 'up' failed) ---"
+            cat $GITHUB_WORKSPACE/docker_build_output.log
+            exit $UP_EXIT_CODE
+          fi
+          echo "Docker compose up -d successful."
 
       - name: Prepare test database
         working-directory: ./ultradex
@@ -34,11 +55,65 @@ jobs:
 
       - name: Output Failure Logs
         if: failure()
-        working-directory: ./ultradex
+        working-directory: ./ultradex # pwd is $GITHUB_WORKSPACE/ultradex
         run: |
-          echo "--- Docker Compose Logs on Failure ---"
-          docker compose logs
-          echo "--- End Docker Compose Logs ---"
+          set -x # Echo commands for debugging this script
+
+          BUILD_LOG_FILE="$GITHUB_WORKSPACE/docker_build_output.log"
+          UP_LOG_FILE="$GITHUB_WORKSPACE/docker_up_output.log"
+          PROCESSED_BUILD_OR_UP_ERROR=false
+
+          echo "--- Analyzing Failure Logs ---"
+
+          if [ -f "$BUILD_LOG_FILE" ]; then
+            # Look for common Docker build error patterns. This can be refined.
+            # Example: "ERROR:", "failed to build", "Step.*failed"
+            # We'll grep for these and show some context.
+            echo "Analyzing Docker build log: $BUILD_LOG_FILE"
+            if grep -E -i -C 5 'ERROR|failed to build|Step [0-9]+/[0-9]+ failed|failed to fetch|not found' "$BUILD_LOG_FILE"; then
+              PROCESSED_BUILD_OR_UP_ERROR=true
+              echo "--- End of relevant Docker build log excerpt ---"
+            else
+              echo "No obvious critical error markers found in Docker build log, but build may have still failed."
+              # Check if the previous step explicitly said build failed
+              # This is tricky, relies on the previous step's stdout format.
+              # For now, we assume if this step ('Output Failure Logs') is running, a failure occurred.
+              # If BUILD_LOG_FILE exists, it implies build was attempted.
+            fi
+          else
+            echo "Docker build log ($BUILD_LOG_FILE) not found."
+          fi
+
+          # Only check UP_LOG_FILE if we haven't found a definitive build error
+          if [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ] && [ -f "$UP_LOG_FILE" ]; then
+            echo "Analyzing Docker up log: $UP_LOG_FILE"
+            # Look for common docker compose up error patterns
+            if grep -E -i -C 5 'ERROR|Cannot start service|failed| unhealthy' "$UP_LOG_FILE"; then
+              PROCESSED_BUILD_OR_UP_ERROR=true
+              echo "--- End of relevant Docker up log excerpt ---"
+            else
+              echo "No obvious critical error markers found in Docker up log."
+            fi
+          elif [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ]; {
+            echo "Docker up log ($UP_LOG_FILE) not found."
+          }
+          fi
+
+          # If we haven't processed a build/up error, then proceed to check app service logs
+          if [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ]; then
+            echo "Build and up logs did not show immediate critical errors, or logs were not found."
+            echo "Checking application service ('app') logs..."
+            # Check if the 'app' service is running or has ever run.
+            if [ -n "$(docker compose ps -q app)" ] || docker compose ps app | grep -iq 'exited'; then
+              echo "The 'app' service is (or was) running/exited. Attempting to extract RSpec failure logs:"
+              docker compose logs app | grep -E -A 30 'Failures:|Failure/Error:|Failed examples:' \
+              || (echo "No RSpec failure markers found in 'app' service logs. Dumping last 50 lines of 'app' service as fallback." && docker compose logs app | tail -n 50)
+            else
+              echo "The 'app' service does not appear to be running and may have never started."
+              echo "This is an unexpected state if build/up logs were clean. Please review full CI logs."
+            fi
+          fi
+          echo "--- End of Failure Log Analysis ---"
 
       - name: Stop Docker services
         if: always() # Ensure services are stopped even if previous steps fail
