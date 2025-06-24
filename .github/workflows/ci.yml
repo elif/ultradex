@@ -43,8 +43,18 @@ jobs:
         working-directory: ./ultradex
         run: |
           mkdir -p ../../build_failures
-          # Ensure the log command also uses the correct relative path for output
-          docker compose logs > ../../build_failures/logs_${{ github.run_id }}_$(date +%s).txt
+          echo "Attempting to capture docker compose logs for run ${{ github.run_id }} at $(date)" > ../../build_failures/capture_attempt_${{ github.run_id }}.txt
+          docker compose logs >> ../../build_failures/logs_${{ github.run_id }}_$(date +%s).txt
+          echo "Log capture attempt finished for run ${{ github.run_id }} at $(date)" >> ../../build_failures/capture_attempt_${{ github.run_id }}.txt
+
+      - name: List build_failures directory # DEBUGGING STEP
+        if: failure()
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Listing GITHUB_WORKSPACE (${GITHUB_WORKSPACE}):"
+          ls -Al $GITHUB_WORKSPACE
+          echo "Listing GITHUB_WORKSPACE/build_failures (${GITHUB_WORKSPACE}/build_failures):"
+          ls -Al $GITHUB_WORKSPACE/build_failures || echo "build_failures directory not found or empty at ${GITHUB_WORKSPACE}/build_failures"
 
       - name: Commit failure logs
         if: failure()
@@ -56,3 +66,6 @@ jobs:
           commit_user_name: "GitHub Actions"
           commit_user_email: "actions@github.com"
           commit_author: "GitHub Actions <actions@github.com>"
+          commit_options: '--no-dry-run --verbose'
+          add_options: '--verbose'
+          repository: .
