@@ -8,9 +8,23 @@ UltrAdex is a software tool designed to assist Pokémon card collectors in build
 
 ### 2.1. Card Data Attributes
 
-The system shall store the following information for each unique Pokémon card printing:
+The system shall store the following information for each unique Pokémon card printing in Redis:
 
-*   **`card_id`**: A unique identifier for the card printing (e.g., `base1-4` for Base Set Charizard, `swsh9-1` for Brilliant Stars Arceus V).
+*   **`card_uuid`**: A unique identifier for each distinct card printing. The format is: `[set_release_number]-[pokedex_number]-[variant_code]-[frame_code]`
+    *   **`set_release_number`**: Chronological number for the set's release.
+    *   **`pokedex_number`**: National Pokédex number (e.g., `025`).
+    *   **`variant_code`**: Single letter for print style:
+        *   `N`: Normal
+        *   `H`: Holofoil
+        *   `R`: Reverse Holofoil
+        *   `O`: Other
+    *   **`frame_code`**: Single letter for artwork frame type:
+        *   `S`: Standard Frame
+        *   `F`: Full Art Frame
+        *   `A`: Alternate/Special Art Frame
+        *   `J`: Jumbo Card
+    *   This `card_uuid` is the primary key for cards.
+*   **`original_set_id`**: Original set identifier from source API (e.g., `base1`).
 *   **`pokemon_species_name`**: The name of the Pokémon featured on the card (e.g., "Pikachu", "Charizard").
 *   **`card_name`**: The full name of the card as it appears on the card (e.g., "Charizard VMAX", "Birthday Pikachu").
 *   **`national_pokedex_number`**: The National Pokédex number of the Pokémon species.
@@ -29,11 +43,35 @@ The system shall store the following information for each unique Pokémon card p
 *   **`approximate_price_usd`**: An estimated market price of the card in USD. This should be updated periodically. Consider different conditions (e.g., Near Mint, Lightly Played) if feasible, or standardize on one (e.g., Near Mint).
 *   **`notes`**: Optional field for any additional relevant information about a specific printing (e.g., "Staff Prerelease", "1st Edition").
 
-### 2.2. Data Source and Management
+### 2.2. Data Source and Management (Redis Focus)
 
-*   **Source:** The primary data source will be a reputable Pokémon TCG API (e.g., [https://pokemontcg.io/](https://pokemontcg.io/)). The specific API needs to be evaluated for completeness, accuracy, and terms of service.
-*   **Updates:** The system should have a mechanism to periodically update its local database from the chosen API to ensure data remains current.
-*   **Local Storage:** A local database (e.g., SQLite, PostgreSQL) will be used to store and manage the card data for performance and offline capabilities (if desired in the future).
+*   **Source:** The primary data source will be a reputable Pokémon TCG API (e.g., [https://pokemontcg.io/](https://pokemontcg.io/)). Data fetched will be processed and stored in Redis.
+*   **Updates:** The system should periodically update its Redis database from the API. This involves generating `card_uuid`s for new entries.
+*   **Data Storage:** Exclusively **Redis**. All card data, user collections, etc., will reside in Redis.
+
+### 2.3. Redis Data Structures and Keying Scheme (Simplified Overview)
+
+(For a detailed breakdown, refer to the main `REQUIREMENTS.md` document.)
+
+*   **Card Details**: Redis Hashes. Key: `card:[card_uuid]`. Fields include all attributes from 2.1.
+*   **Set Information**: Redis Hashes. Key: `set:[original_set_id]`. Fields: `set_name`, `release_number`, etc.
+*   **Global Set Release Counter**: Redis Integer. Key: `global:next_set_release_number`.
+*   **Indexes (Redis Sets)**:
+    *   `idx:pokemon_cards:[pokedex_number]` (Members: `card_uuid`s)
+    *   `idx:set_cards:[original_set_id]` (Members: `card_uuid`s)
+*   **User Data (if implemented)**:
+    *   User Collections: e.g., `user:[user_id]:collection_cards:[collection_slug]` (Set of `card_uuid`s).
+    *   Owned Instances: e.g., `user:[user_id]:owned_instance:[card_uuid]:[instance_id]` (Hash of details: condition, price).
+
+### 2.4. Data Abstraction Layer (Redis Lua Scripts)
+
+All Redis interactions must be through Lua scripts. Examples:
+*   `add_card(uuid, data_json)`
+*   `get_card(uuid)`
+*   `add_card_to_collection(user_id, collection_slug, card_uuid)`
+*   `get_collection_cards(user_id, collection_slug)`
+
+(Refer to `REQUIREMENTS.md` for a more comprehensive list of scripts and detailed structures).
 
 ## 3. Functional Requirements
 
@@ -45,9 +83,9 @@ The system shall store the following information for each unique Pokémon card p
 
 ### 3.2. Collection Tracking
 
-*   **FR3.2.1:** For each card printing in the database, users shall be able to mark if they own the card.
-*   **FR3.2.2:** The system shall visually distinguish between owned and unowned cards when displaying lists of cards.
-*   **FR3.2.3:** Users shall be able to view statistics for their collection (e.g., percentage complete for a defined master set, total number of owned cards).
+*   **FR3.2.1:** For each card printing (identified by `card_uuid`), users shall be able to mark if they own one or more copies by creating `owned_instance` records in Redis.
+*   **FR3.2.2:** The system shall visually distinguish between owned and unowned `card_uuid`s.
+*   **FR3.2.3:** Users shall be able to view statistics for their collection (e.g., percentage complete for a master set based on `card_uuid`s in their collection set vs. all `card_uuid`s for that Pokémon).
 
 ### 3.3. Placeholder Generation
 
@@ -92,11 +130,11 @@ The system shall store the following information for each unique Pokémon card p
 ### 3.5. User Account Management (Optional - Phase 2)
 
 *   **FR3.5.1:** Users may be able to create an account to save their collections and preferences.
-*   **FR3.5.2:** Data should be exportable/importable if accounts are not implemented.
+*   **FR3.5.2:** Data (user collections, preferences from Redis) should be exportable/importable (e.g., JSON) if accounts are not implemented or for backup.
 
 ## 4. Non-Functional Requirements
 
-### 4.1. Data Accuracy and Comprehensiveness
+### 4.1. Data Accuracy and Comprehensiveness (Stored in Redis)
 
 *   **NFR4.1.1:** The card data must be as comprehensive and accurate as possible, reflecting all official English printings. Consideration for Japanese or other language printings could be a future enhancement.
 *   **NFR4.1.2:** The pricing data should be indicative and updated regularly, but users should understand it's an approximation.
@@ -149,14 +187,4 @@ The system shall store the following information for each unique Pokémon card p
     *   "Generate" button.
     *   Preview of a sample placeholder.
 
-## 6. Future Considerations (Out of Scope for Initial Version)
-
-*   Support for multiple languages (Japanese, etc.).
-*   Tracking different card conditions and prices for each.
-*   Community features (sharing collections, wishlists).
-*   Price history tracking.
-*   Direct integration with collection management platforms (e.g., TCGPlayer, Pokellector).
-*   Mobile application.
-*   Support for other TCGs.
-
-This document will serve as the foundation for the development of UltrAdex. It will be updated as necessary throughout the project lifecycle.
+This document outlines an earlier version of requirements. For the most current and detailed specifications, including the definitive Redis data model and Lua script designs, please refer to `REQUIREMENTS.md`.

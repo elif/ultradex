@@ -10,7 +10,22 @@ UltrAdex is a software tool designed to assist Pokémon card collectors in build
 
 The system shall store the following information for each unique Pokémon card printing:
 
-*   **`card_id`**: A unique identifier for the card printing (e.g., `base1-4` for Base Set Charizard, `swsh9-1` for Brilliant Stars Arceus V). The format typically combines a set identifier with the card's number in that set.
+*   **`card_uuid`**: A unique identifier for each distinct card printing, crucial for data retrieval and organization. The format is: `[set_release_number]-[pokedex_number]-[variant_code]-[frame_code]`
+    *   **`set_release_number`**: A chronological number assigned to each set upon its release (e.g., `1`, `2`, ...). This requires a mechanism to assign and track these numbers globally for all sets.
+    *   **`pokedex_number`**: The National Pokédex number of the Pokémon (e.g., `025` for Pikachu, `006` for Charizard). Use leading zeros for consistency (e.g., 3 digits).
+    *   **`variant_code`**: A single letter representing the card's print style:
+        *   `N`: Normal (non-holo)
+        *   `H`: Holofoil (standard holo pattern in the image box)
+        *   `R`: Reverse Holofoil (holo pattern on the card body)
+        *   `O`: Other (e.g., special textured, gold cards, unique finishes)
+    *   **`frame_code`**: A single letter representing the card's artwork frame type:
+        *   `S`: Standard Frame
+        *   `F`: Full Art Frame
+        *   `A`: Alternate/Special Art Frame
+        *   `J`: Jumbo Card
+    *   *Example UUID*: `123-025-R-S` could represent a Reverse Holo Pikachu from the 123rd released set with a standard art frame.
+    *   This `card_uuid` replaces the previous `card_id` concept and will be the primary key for cards.
+*   **`original_set_id`**: The original set identifier if available from the source API (e.g., `base1`, `swsh9`). Useful for referencing external API data.
 *   **`pokemon_species_name`**: The name of the Pokémon featured on the card (e.g., "Pikachu", "Charizard").
 *   **`card_name`**: The full name of the card as it appears on the card (e.g., "Charizard VMAX", "Birthday Pikachu").
 *   **`national_pokedex_number`**: The National Pokédex number of the Pokémon species.
@@ -32,19 +47,156 @@ The system shall store the following information for each unique Pokémon card p
 
 ### 2.2. Data Source and Management
 
-*   **Source:** The primary data source will be a reputable Pokémon TCG API. [https://pokemontcg.io/](https://pokemontcg.io/) is the current candidate. Evaluation of its terms of service, data completeness (especially for variants and older sets), accuracy, and update frequency is required.
-*   **Updates:** The system should have a mechanism to periodically update its local database from the chosen API. A nightly batch job is recommended, fetching new sets, card data, and price updates. Changed cards will be updated or new ones added.
-*   **Local Storage:** A local database will be used. SQLite is suitable for local development and single-user desktop application deployments due to its simplicity. For a potential web application deployment with multiple users, PostgreSQL would be a more robust choice.
+*   **Source:** The primary data source will be a reputable Pokémon TCG API. [https://pokemontcg.io/](https://pokemontcg.io/) is the current candidate. Evaluation of its terms of service, data completeness (especially for variants and older sets), accuracy, and update frequency is required. The data fetched from this API will be transformed and stored in Redis.
+*   **Updates:** The system should have a mechanism to periodically update its Redis database from the chosen API. A nightly batch job is recommended, fetching new sets, card data, and price updates. Changed cards will be updated or new ones added in Redis. This process will involve generating the correct `card_uuid` for new entries.
+*   **Data Storage:** All data will be stored exclusively in **Redis**.
 
-### 2.3. User-Specific Collection Data
+### 2.3. Redis Data Structures and Keying Scheme
 
-This data is stored locally or synced if user accounts are implemented.
+This section details the Redis structures used to store UltrAdex data. All interactions with these structures must go through the defined Lua script abstraction layer.
+
+#### 2.3.1. Core Data Structures:
+
+*   **Card Details**: Stored in Redis Hashes.
+    *   **Key**: `card:[card_uuid]` (e.g., `card:123-025-R-S`)
+    *   **Fields**:
+        *   `pokemon_species_name`: (e.g., "Pikachu")
+        *   `card_name`: (e.g., "Charizard VMAX")
+        *   `national_pokedex_number`: (e.g., `025`)
+        *   `original_set_id`: (e.g., `swsh9`)
+        *   `set_name`: (e.g., "Brilliant Stars")
+        *   `series_name`: (e.g., "Sword & Shield Series")
+        *   `release_date`: (e.g., "2022-02-25")
+        *   `card_number_in_set`: (e.g., "TG01/TG30")
+        *   `rarity`: (e.g., "Holo Rare")
+        *   `card_type`: (e.g., "Pokémon")
+        *   `pokemon_types`: (e.g., "Fire", "Water, Psychic" - stored as a comma-separated string or JSON array)
+        *   `hp`: (e.g., `120`)
+        *   `illustrator_name`: (e.g., "Ken Sugimori")
+        *   `image_url_small`: URL
+        *   `image_url_large`: URL
+        *   `approximate_price_usd`: (e.g., `15.99`)
+        *   `last_price_update_timestamp`: Unix timestamp
+        *   `notes`: (e.g., "Staff Prerelease")
+        *   `variant_code`: (e.g., `R` - from `card_uuid`)
+        *   `frame_code`: (e.g., `S` - from `card_uuid`)
+        *   `set_release_number`: (e.g., `123` - from `card_uuid`)
+
+*   **Set Information**: Stored in Redis Hashes.
+    *   **Key**: `set:[original_set_id]` (e.g., `set:swsh9`)
+    *   **Fields**:
+        *   `set_name`: (e.g., "Brilliant Stars")
+        *   `series_name`: (e.g., "Sword & Shield Series")
+        *   `release_date`: (e.g., "2022-02-25")
+        *   `release_number`: The chronological `set_release_number` used in `card_uuid` (e.g., `123`). This is critical for generating `card_uuid`s.
+        *   `total_cards`: (optional, total cards in the set from API)
+*   **Global Set Release Number Counter**: Redis Integer.
+    *   **Key**: `global:next_set_release_number`
+    *   **Usage**: Atomically incremented (`INCR`) to get a new `set_release_number` when a new set is first processed.
+
+#### 2.3.2. Indexing Structures (Primarily Redis Sets):
+
+*   **Pokémon to Cards Index**:
+    *   **Key**: `idx:pokemon_cards:[national_pokedex_number]` (e.g., `idx:pokemon_cards:025`)
+    *   **Members**: Set of `[card_uuid]`
+*   **Set (Original ID) to Cards Index**:
+    *   **Key**: `idx:set_cards:[original_set_id]` (e.g., `idx:set_cards:swsh9`)
+    *   **Members**: Set of `[card_uuid]`
+*   **Illustrator to Cards Index**:
+    *   **Key**: `idx:illustrator_cards:[normalized_illustrator_name]` (e.g., `idx:illustrator_cards:ken_sugimori`)
+    *   **Members**: Set of `[card_uuid]`
+*   **Card Name Search Index (Simplified)**: While Redis is not a full-text search engine, simple name matching can be supported.
+    *   **Key**: `idx:card_name_words:[word_token]` (e.g., `idx:card_name_words:pikachu`, `idx:card_name_words:vmax`)
+    *   **Members**: Set of `[card_uuid]` that include this word in their `card_name`. (Requires preprocessing of card names).
+    *   *Alternative*: Use Redis Search module for more advanced searching if available.
+
+#### 2.3.3. User-Specific Collection Data:
+
+This data is stored per user and requires user identification.
+
+*   **User Details** (if accounts are implemented, FR3.5): Stored in Redis Hashes.
+    *   **Key**: `user:[user_id]`
+    *   **Fields**: `username`, `email_hash` (if storing email), `preferences_json`, `creation_date`.
+*   **User Collection Metadata**: Stored in Redis Hashes.
+    *   **Key**: `user:[user_id]:collection_meta:[collection_slug]` (e.g., `user:xyz789:collection_meta:my-pikachu-set`)
+        *   `collection_slug` should be a URL-friendly version of the collection name.
+    *   **Fields**: `display_name` (e.g., "My Pikachu Set"), `target_pokemon_pokedex_numbers_json` (JSON array of Pokédex numbers), `creation_date`, `description`, `last_updated`.
+*   **User Owned Card Instances**: This structure supports tracking individual copies with their specific details as per original requirements. Stored in Redis Hashes.
+    *   **Key**: `user:[user_id]:owned_instance:[card_uuid]:[instance_id]`
+        *   `instance_id`: A unique ID for this specific copy owned by the user (e.g., a timestamp, or a simple counter like `1`, `2`). This allows a user to own multiple copies of the *same* `card_uuid` but track them separately.
+    *   **Fields**:
+        *   `collection_slugs_json`: JSON array of collection slugs this instance belongs to (a card can be in multiple "master sets" a user defines).
+        *   `quantity`: Typically 1 for unique instance tracking. If not using `instance_id` for true uniqueness but rather for "versions" of an owned card, this could be >1. For precise per-copy tracking, `quantity` on this hash should be 1.
+        *   `condition`: (e.g., "Near Mint")
+        *   `language_owned`: (e.g., "English")
+        *   `purchase_price`: (e.g., `10.50`)
+        *   `purchase_date`: (e.g., "2023-01-15")
+        *   `user_notes_on_owned_card`: (e.g., "Graded PSA 9")
+        *   `added_to_collection_date`: Timestamp.
+*   **Index: User's Collections**: Redis Set. Stores slugs of all collections for a user.
+    *   **Key**: `user:[user_id]:collections`
+    *   **Members**: Set of `[collection_slug]`
+*   **Index: Cards in User Collection**: Redis Set. Links a collection to the `card_uuid`s it contains (regardless of how many instances of that `card_uuid` the user owns). This is for quickly knowing which *unique printings* are in a collection.
+    *   **Key**: `user:[user_id]:collection_cards:[collection_slug]`
+    *   **Members**: Set of `[card_uuid]` (unique card printings).
+
+### 2.4. Data Abstraction Layer (Redis Lua Scripts)
+
+All data access (read, write, update, delete) to Redis MUST be performed through a well-defined set of Lua scripts executed server-side by Redis. This ensures:
+*   **Atomicity**: Complex operations involving multiple keys can be performed atomically.
+*   **Encapsulation**: The application code does not need to know the low-level details of Redis keys and data structures.
+*   **Performance**: Reduces network round-trips for complex operations.
+*   **Data Integrity**: Centralized logic for data manipulation.
+
+#### 2.4.1. Key Lua Scripts (Examples - full list to be extensive):
+
+*   **Card & Set Management Scripts:**
+    *   `script:add_card(keys_json, args_json)`:
+        *   KEYS: `card:[card_uuid]`, `idx:pokemon_cards:[pokedex_number]`, `idx:set_cards:[original_set_id]`, `idx:illustrator_cards:[norm_illustrator_name]`, relevant `idx:card_name_words:*`.
+        *   ARGS: `card_uuid`, all card data fields as a JSON string.
+        *   Logic: Creates the card hash, adds UUID to all relevant indexes.
+    *   `script:get_card(keys_json, args_json)`: KEYS: `card:[card_uuid]`. ARGS: `card_uuid`. Returns card hash.
+    *   `script:update_card_price(keys_json, args_json)`: KEYS: `card:[card_uuid]`. ARGS: `card_uuid`, `new_price`, `timestamp`. Updates price fields.
+    *   `script:find_cards_by_pokemon(keys_json, args_json)`: KEYS: `idx:pokemon_cards:[pokedex_number]`. ARGS: `pokedex_number`. Returns set of `card_uuid`s.
+    *   `script:add_set(keys_json, args_json)`:
+        *   KEYS: `set:[original_set_id]`, `global:next_set_release_number` (if assigning release number here).
+        *   ARGS: `original_set_id`, all set data fields as JSON string (including `release_number` if pre-assigned, or flag to assign).
+        *   Logic: Creates set hash. Optionally gets next `release_number`.
+    *   `script:get_next_set_release_number(keys_json, args_json)`: KEYS: `global:next_set_release_number`. ARGS: none. Returns `INCR global:next_set_release_number`.
+
+*   **User & Collection Management Scripts:**
+    *   `script:create_user_collection(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:collection_meta:[collection_slug]`, `user:[user_id]:collections`.
+        *   ARGS: `user_id`, `collection_slug`, collection metadata JSON.
+        *   Logic: Creates metadata hash, adds slug to user's list of collections.
+    *   `script:add_owned_card_instance(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:owned_instance:[card_uuid]:[instance_id]`, `user:[user_id]:collection_cards:[collection_slug]` (for each collection it's in).
+        *   ARGS: `user_id`, `card_uuid`, `instance_id`, owned instance data JSON (including `collection_slugs_json`).
+        *   Logic: Creates the owned instance hash. Adds `card_uuid` to the `collection_cards` set for each specified collection if not already present.
+    *   `script:remove_owned_card_instance(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:owned_instance:[card_uuid]:[instance_id]`, potentially `user:[user_id]:collection_cards:[collection_slug]` if this is the last instance of a card_uuid in a collection.
+        *   ARGS: `user_id`, `card_uuid`, `instance_id`.
+        *   Logic: Deletes the instance hash. May need logic to check if `card_uuid` should be removed from `collection_cards` if no other instances of this `card_uuid` exist for that collection.
+    *   `script:get_collection_details(keys_json, args_json)`:
+        *   KEYS: `user:[user_id]:collection_meta:[collection_slug]`, `user:[user_id]:collection_cards:[collection_slug]`.
+        *   ARGS: `user_id`, `collection_slug`.
+        *   Logic: Returns metadata and the set of unique `card_uuid`s in the collection. To get all *instances*, further calls to get `owned_instance` hashes would be needed by the application, or a more complex script.
+    *   `script:get_all_owned_instances_for_card_in_collection(keys_json, args_json)`: (More advanced)
+        *   KEYS: Scan `user:[user_id]:owned_instance:[card_uuid]:*`
+        *   ARGS: `user_id`, `card_uuid`, `collection_slug`
+        *   Logic: Iterates through instances of a `card_uuid` for a user, filters by `collection_slug` in their `collection_slugs_json` field.
+
+This list is not exhaustive but illustrates the principle. The application backend (e.g., Python server) will be responsible for loading these Lua scripts into Redis and calling them with appropriate arguments.
+
+### 2.5. User-Specific Collection Data (Legacy - Now Integrated into Redis Section)
+
+This data is stored locally or synced if user accounts are implemented. (This section header is legacy, content moved to 2.3.3)
 
 *   **`user_id`**: Unique identifier for a user (relevant if accounts are implemented, see FR3.5).
-*   **`collection_id`**: Unique identifier for a user-defined master set (e.g., "Pikachu Master Set"). Links to `pokemon_species_name` or a list of such names.
-*   **`owned_card_instance_id`**: A unique identifier for each specific copy of a card a user owns. This allows tracking multiple copies of the same card printing with different attributes.
-*   **`card_id`**: Foreign key linking to the `card_id` in the main card data attributes, identifying the specific printing owned.
-*   **`quantity_owned`**: Number of copies of this specific card printing the user owns with these exact attributes (condition, language, etc.). Defaults to 1.
+*   **`collection_id`**: (Now `collection_slug`) Unique identifier for a user-defined master set.
+*   **`owned_card_instance_id`**: (Now composite key `user:[user_id]:owned_instance:[card_uuid]:[instance_id]`) A unique identifier for each specific copy of a card a user owns.
+*   **`card_id`**: (Now `card_uuid`) Foreign key linking to the main card data, identifying the specific printing owned.
+*   **`quantity_owned`**: Number of copies of this specific card printing the user owns. (Handled by `instance_id` for unique copies, or a field within the instance hash).
 *   **`condition`**: Condition of the owned card (e.g., Enum: "Mint", "Near Mint", "Lightly Played", "Moderately Played", "Heavily Played", "Damaged").
 *   **`language_owned`**: Language of the owned card (e.g., "English", "Japanese", "German", "French"). Defaults to "English".
 *   **`purchase_price`**: Price paid by the user for the card. Stored in the user's preferred currency (see FR3.7.1).
@@ -56,17 +208,17 @@ This data is stored locally or synced if user accounts are implemented.
 ### 3.1. Master Set Definition and Management
 
 *   **FR3.1.1:** Users shall be able to define one or more "master sets" they wish to collect.
-*   **FR3.1.2:** Defining a master set involves selecting one or more Pokémon species.
-*   **FR3.1.3:** The system shall display all known unique printings for the selected Pokémon species when a user is viewing or defining a master set. Users should be able to easily distinguish between different versions (e.g., regular, holo, reverse holo, 1st edition, stamped promos, other variants noted in `notes`) of the same card artwork.
+*   **FR3.1.2:** Defining a master set involves selecting one or more Pokémon species (by name or Pokédex number). This information is stored in the `User Collection Metadata` (see 2.3.3).
+*   **FR3.1.3:** The system shall display all known unique printings (based on `card_uuid`) for the selected Pokémon species when a user is viewing or defining a master set. Lua scripts will query the `idx:pokemon_cards:[pokedex_number]` index. Users should be able to distinguish versions based on the `variant_code` and `frame_code` in the `card_uuid` and other attributes in the `card:[card_uuid]` hash.
 
 ### 3.2. Collection Tracking
 
-*   **FR3.2.1:** For each card printing in the database, users shall be able to mark if they own one or more copies. This involves creating/updating entries in the User-Specific Collection Data (Section 2.3), including details like quantity, condition, language, purchase price, and purchase date.
-*   **FR3.2.2:** The system shall visually distinguish between owned and unowned cards when displaying lists of cards (e.g., color coding, icons).
+*   **FR3.2.1:** For each card printing (`card_uuid`) in the database, users shall be able to mark if they own one or more copies. This involves creating/updating `User Owned Card Instances` (see 2.3.3) using Lua scripts, including details like condition, language, purchase price, and purchase date for each specific instance.
+*   **FR3.2.2:** The system shall visually distinguish between owned and unowned `card_uuid`s when displaying lists of cards. This can be determined by checking for the existence of related `User Owned Card Instances` for the current user and relevant `card_uuid`.
 *   **FR3.2.3:** Users shall be able to view statistics for their collection, such as:
-    *   Percentage complete for a defined master set (based on unique `card_id`s).
-    *   Total number of unique cards owned.
-    *   Total number of cards owned (including duplicates).
+    *   Percentage complete for a defined master set (based on unique `card_uuid`s present in `user:[user_id]:collection_cards:[collection_slug]` compared to all `card_uuid`s for the target Pokémon).
+    *   Total number of unique `card_uuid`s owned across all collections.
+    *   Total number of owned card instances (summing up all `user:[user_id]:owned_instance:[card_uuid]:[instance_id]` records for a user).
     *   Estimated total market value of the collection (sum of `approximate_price_usd` for owned cards, adjusted for user's currency).
     *   Total spent on collection (sum of `purchase_price` for owned cards).
 
@@ -119,22 +271,24 @@ This data is stored locally or synced if user accounts are implemented.
 ### 3.5. User Account Management (Optional - Phase 2)
 
 *   **FR3.5.1:** Users may be able to create an account to save their collections and preferences. Accounts could be local to the machine or cloud-synced for access across multiple devices.
-*   **FR3.5.2:** If accounts are not implemented or for users preferring local data, all user-specific data (collections, preferences) must be exportable and importable via local files (e.g., JSON, CSV).
-*   **FR3.5.3 (If accounts implemented):** A mechanism for password recovery (e.g., email-based) would be required for cloud-synced accounts.
-*   **FR3.5.4 (If accounts implemented):** Users should be able to export their data even if using cloud-synced accounts.
+*   **FR3.5.2:** If accounts are not implemented or for users preferring local data, all user-specific data (collections, preferences stored in Redis under user-specific keys) must be exportable and importable. Export format could be a Redis RDB dump filtered for the user's keys, or more commonly, JSON/CSV generated by querying the user's data via Lua scripts.
+*   **FR3.5.3 (If accounts implemented):** A mechanism for password recovery would be required. User PII like email for recovery should be handled with care, potentially hashed or stored separately from main Redis data if necessary for compliance.
+*   **FR3.5.4 (If accounts implemented):** Users should be able to export their data (as in FR3.5.2) even if using cloud-synced accounts.
 
-### 3.6. Data Synchronization and Backup
+### 3.6. Data Synchronization and Backup (Redis Context)
 
-*   **FR3.6.1:** For local data management (no cloud accounts or user preference), users shall be able to explicitly trigger a backup of their entire user-specific data (collections, settings as per Section 2.3 and 3.7) to a single, user-chosen file location.
-*   **FR3.6.2:** Users shall be able to restore their user-specific data from a previously created backup file. This will overwrite current user data.
-*   **FR3.6.3:** If cloud-based user accounts are implemented (FR3.5), user-specific data shall be automatically synced to a secure cloud backend when an internet connection is available. The system should handle offline modifications gracefully and sync them when connectivity is restored.
+*   **FR3.6.1:** For local data management (e.g., desktop app running its own Redis instance), users shall be able to explicitly trigger a backup. This could be achieved by Redis's own `BGSAVE` or `SAVE` commands, creating an RDB file. The application would manage these files.
+*   **FR3.6.2:** Users shall be able to restore their user-specific data from a backup file. This would involve replacing the current Redis data file (if Redis is stopped) or selectively restoring data if possible (more complex).
+*   **FR3.6.3:** If cloud-based user accounts are implemented with a central Redis instance, this instance must have robust backup and restore procedures managed by the service provider (e.g., automated snapshots, point-in-time recovery). Client-side data is simply a view of this central store. Offline modifications would need a client-side queue and conflict resolution strategy upon reconnection if the client also caches data.
 
 ### 3.7. Settings/Configuration
 
-*   **FR3.7.1:** Users shall be able to set their preferred currency for displaying prices (e.g., USD, EUR, GBP, JPY). The system will use `approximate_price_usd` as the base and convert it using periodically updated exchange rates. The source for exchange rates needs to be defined (e.g., a free currency conversion API).
-*   **FR3.7.2:** Users shall be able to define their default placeholder customization settings (template, information to include, dimensions, etc.).
-*   **FR3.7.3:** Users shall be able to manage the frequency of automatic data updates from the external Pokémon TCG API (e.g., daily, weekly, manual only) or trigger a manual update at any time.
-*   **FR3.7.4:** Users shall be able to set their default language for owned cards and preferred condition for pricing if the API provides multiple values.
+User preferences and settings will be stored in Redis, likely within the `user:[user_id]` hash or a dedicated `user:[user_id]:settings` hash.
+
+*   **FR3.7.1:** Preferred currency: Stored as a field in user settings. Conversion logic applied at display time.
+*   **FR3.7.2:** Default placeholder settings: Stored as a JSON string or individual fields in user settings.
+*   **FR3.7.3:** API update frequency (for the global card database): This is a system-level setting, not user-specific. Manual trigger by an admin user might be possible.
+*   **FR3.7.4:** Default language/condition for owned cards: Stored in user settings.
 
 ## 4. Non-Functional Requirements
 
@@ -165,18 +319,22 @@ This data is stored locally or synced if user accounts are implemented.
 
 ### 4.5. Scalability
 
-*   **NFR4.5.1:** The system must efficiently handle a growing database of cards, potentially tens of thousands to hundreds of thousands of unique printings, as new sets are released over many years.
-*   **NFR4.5.2:** If web-deployed, the system should be scalable to handle a moderate number of concurrent users (specifics to be defined if this path is chosen).
+*   **NFR4.5.1:** Redis is known for high performance and can handle large datasets if memory is sufficient. The defined keying scheme and use of Lua scripts aim for efficient data retrieval. Data modeling choices (e.g., appropriate use of Hashes vs Sets) are important. The growth to hundreds of thousands of unique printings (card UUIDs) is feasible.
+*   **NFR4.5.2:** Redis can handle many concurrent connections. For a web-deployed system, scaling would involve a robust Redis setup (e.g., Sentinel for HA, Cluster for sharding if dataset grows beyond single instance memory) and stateless application servers.
 
-### 4.6. Availability
+### 4.6. Availability (Redis Context)
 
-*   **NFR4.6.1:** If deployed as a web application, aim for high availability (e.g., 99.9% uptime). For a local desktop application, this is primarily about application stability and ensuring it runs correctly on supported operating systems.
+*   **NFR4.6.1:** If deployed as a web application using a managed Redis service (e.g., AWS ElastiCache, Azure Cache for Redis), high availability is often a feature of the service. If self-hosting Redis, setup with Redis Sentinel for failover is crucial. For a local desktop application running an embedded or local Redis, availability depends on the stability of the local Redis instance and the application itself.
 
-### 4.7. Security (Primarily if web-deployed or with cloud accounts)
+### 4.7. Security (Redis Context)
 
-*   **NFR4.7.1:** If user accounts are implemented, passwords must be stored securely (e.g., hashed and salted).
-*   **NFR4.7.2:** Communication with any backend API (for user data sync or card data) should use HTTPS.
-*   **NFR4.7.3:** API keys for external services must be stored securely and not exposed in client-side code.
+*   **NFR4.7.1:** If user accounts are implemented:
+    *   Passwords must be hashed securely (e.g., Argon2, scrypt, bcrypt) by the application backend *before* any user data (even a user ID derived from username) is stored or used in Redis keys. Redis itself does not store passwords.
+    *   User IDs used in Redis keys should be non-guessable if possible (e.g., UUIDs generated by the application).
+*   **NFR4.7.2:** Communication between the application backend and Redis should be secured, especially if Redis is not on localhost. This can involve network ACLs, Redis `requirepass` (password), and potentially TLS/SSL connections if Redis is configured for it and network is untrusted.
+*   **NFR4.7.3:** API keys for external services (Pokémon TCG API, currency conversion) must be stored securely in the application backend's configuration, not in Redis or client-side code.
+*   **NFR4.7.4:** Redis itself should be protected from unauthorized access (firewall, bind to trusted interfaces, strong password).
+*   **NFR4.7.5:** Lua scripts do not inherently add security vulnerabilities if they only operate on data via the provided KEYS and ARGS and do not execute arbitrary commands or access external systems. Care must be taken in script development.
 
 ## 5. User Interface (UI) Conceptual Sketch
 
@@ -213,21 +371,9 @@ This data is stored locally or synced if user accounts are implemented.
     *   Live preview of a single sample placeholder that updates as customization options are changed.
     *   "Generate Placeholders" button (initiates file download/creation).
 *   **Settings View:**
-    *   Tabs for: General (preferred currency, language defaults), Data (API update settings, manual update trigger, backup/restore local data), Placeholder (default placeholder settings).
+    *   Tabs for: General (preferred currency, language defaults from user settings in Redis), Data (system-level API update settings, manual admin trigger, backup/restore local Redis RDB file), Placeholder (default placeholder settings from user settings in Redis).
 
-## 6. Future Considerations (Out of Scope for Initial Version, unless priorities change)
-
-*   Support for multiple languages for card data (Japanese, German, French, etc.).
-*   Tracking different card conditions and their respective market prices more granularly from API, if available.
-*   Community features: sharing collections (anonymized or public), public wishlists, trading features.
-*   Price history tracking and graphing for individual cards and overall collection.
-*   Direct integration with collection management platforms (e.g., TCGPlayer inventory, Pokellector).
-*   Mobile application (iOS, Android).
-*   Support for other TCGs (Magic: The Gathering, Yu-Gi-Oh!, Lorcana).
-*   Advanced reporting and analytics on collection data.
-*   Barcode scanning for quick card identification (if feasible with available APIs/hardware).
-
-## 7. Technical Stack (Preliminary)
+## 6. Technical Stack (Preliminary)
 
 This outlines potential technologies. Final decisions depend on project evolution (e.g., desktop vs. web app).
 
@@ -238,15 +384,17 @@ This outlines potential technologies. Final decisions depend on project evolutio
 
 ### 7.2. Backend (primarily for Web Application or Cloud Sync)
 
-*   **Python:** Frameworks like Django (full-featured) or Flask (lightweight) with Django Rest Framework / Flask-RESTful for APIs.
-*   **Database Interaction:** SQLAlchemy ORM for Python applications.
+*   **Python:** Frameworks like Django (full-featured) or Flask (lightweight) with Django Rest Framework / Flask-RESTful for APIs. The backend will be responsible for interacting with Redis via Lua scripts.
+*   **Redis Client Library for Python:** e.g., `redis-py`.
 
-### 7.3. Database
+### 6.3. Database
 
-*   **Local/Development/Desktop:** SQLite.
-*   **Production Web Application:** PostgreSQL or MySQL.
+*   **Primary Data Store:** **Redis**. All persistent data including card information, user collections, and settings will be stored in Redis.
+    *   For local development/desktop app: A local Redis instance.
+    *   For production web application: A managed Redis service (e.g., AWS ElastiCache, Azure Cache for Redis, Google Cloud Memorystore) or a self-hosted, highly-available Redis setup (using Sentinel and/or Cluster).
+*   **Data Abstraction:** All Redis operations will be performed via **Lua scripts** executed on the Redis server.
 
-### 7.4. External APIs
+### 6.4. External APIs
 
 *   **Pokémon TCG Data:** `https://pokemontcg.io/` (primary candidate, needs final vetting).
 *   **Currency Conversion:** A reliable API for exchange rates if multi-currency support (FR3.7.1) is implemented (e.g., [https://www.exchangerate-api.com/](https://www.exchangerate-api.com/), or similar free/freemium tier).
@@ -270,9 +418,10 @@ This outlines potential technologies. Final decisions depend on project evolutio
 
 ## 9. Glossary
 
-*   **Master Set:** For this project, all unique front printings of a card for a specific Pokémon species. This includes different artworks, holographic patterns, promotional stamps, and other distinct visual variations.
-*   **Unique Front Printing:** A card that is visually distinguishable from another on its front side. See `notes` in 2.1 and NFR4.1.1 for examples of what this encompasses.
-*   **Placeholder:** A printable, card-sized image or document containing key information about a Pokémon card that a collector is missing from their collection. Used to reserve a spot in a binder.
+*   **Master Set:** For this project, all unique front printings of a card (as identified by `card_uuid`) for a specific Pokémon species. This includes different artworks, holographic patterns (as per `variant_code`), frame types (as per `frame_code`), promotional stamps, and other distinct visual variations captured by the `card_uuid` definition and supporting attributes.
+*   **`card_uuid` (Card Unique Universal Identifier)**: The primary identifier for a unique card printing, with the format `[set_release_number]-[pokedex_number]-[variant_code]-[frame_code]`. See section 2.1 for full details.
+*   **Unique Front Printing:** A card that is visually distinguishable from another on its front side, uniquely identified by its `card_uuid`.
+*   **Placeholder:** A printable, card-sized image or document containing key information about a Pokémon card (referenced by its `card_uuid`) that a collector is missing from their collection. Used to reserve a spot in a binder.
 *   **Variant:** A version of a card that differs from its "standard" printing. Examples: 1st Edition, Shadowless (for Base Set), Staff stamped promos, reverse holos, set-specific stamp promos (e.g., E3 Pikachu).
 *   **Reverse Holo:** A card where the holographic pattern is on the body of the card itself, rather than just the artwork box (as in a traditional holo).
 *   **TCG API:** Trading Card Game Application Programming Interface. A service that provides programmatic access to card data.
