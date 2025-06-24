@@ -43,58 +43,46 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && npm install --global yarn \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Install Ruby ---
-# Compile Ruby from source for the specified version.
-ARG RUBY_DOWNLOAD_SHA256=b5aae5537506674595e259c09551a85990774980db791758659cb013de7917f4 # Official SHA256 for ruby-3.1.2.tar.gz
-RUN mkdir -p /usr/local/src/ruby \
-    && curl -fsSL "https://cache.ruby-lang.org/pub/ruby/${RUBY_VERSION%.*}/ruby-${RUBY_VERSION}.tar.gz" -o "/usr/local/src/ruby/ruby-${RUBY_VERSION}.tar.gz" \
-    && echo "${RUBY_DOWNLOAD_SHA256} /usr/local/src/ruby/ruby-${RUBY_VERSION}.tar.gz" | sha256sum -c - \
-    && cd /usr/local/src/ruby \
-    && tar -xzf "ruby-${RUBY_VERSION}.tar.gz" \
-    && cd "ruby-${RUBY_VERSION}" \
-    && ./configure --disable-install-rdoc --disable-install-capi \
-    && make -j "$(nproc)" \
-    && make install \
-    && rm -rf /usr/local/src/ruby
-
-# --- Install Bundler ---
-# Install a specific version of Bundler.
-RUN gem install bundler --version "${BUNDLER_VERSION}"
-
 # --- Create Application User ---
 # Create a non-root user 'appuser' to run the application for security best practices.
+# This is done before RVM installation so RVM can be installed as the user.
 RUN groupadd --gid 1000 appuser \
     && useradd --uid 1000 --gid 1000 --shell /bin/bash --create-home appuser \
-    # Allow appuser to use sudo for specific commands if necessary (e.g., chmod in entrypoint by root for system files).
-    # This line in sudoers is generally for convenience in dev; review for production.
     && echo "appuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/appuser \
     && chmod 0440 /etc/sudoers.d/appuser
 
+# --- Install RVM, Ruby, and Bundler ---
+# Switch to appuser to install RVM and Ruby in the user's home directory.
+USER appuser
+WORKDIR /home/appuser
+
+# Install RVM GPG keys and RVM itself.
+# Using bash -l -c to ensure RVM environment is sourced for subsequent commands.
+RUN gpg --keyserver keyserver.ubuntu.com --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB \
+    && curl -sSL https://get.rvm.io | bash -s stable \
+    && /bin/bash -l -c "rvm install ${RUBY_VERSION} && \
+        rvm use ${RUBY_VERSION} --default && \
+        gem install bundler -v '${BUNDLER_VERSION}' && \
+        rvm cleanup all"
+
 # --- Application Setup ---
-# Set the working directory for the application.
 WORKDIR /usr/src/app
 
-# Configure Bundler to install gems into the appuser's home directory.
-# This avoids permission issues and keeps gems user-specific.
-ENV GEM_HOME /home/appuser/.gems
-ENV BUNDLE_PATH $GEM_HOME
-ENV BUNDLE_BIN $GEM_HOME/bin
-# Add gems bin path to the system PATH for both root and appuser.
-ENV PATH $GEM_HOME/bin:$PATH
+# Set environment variables for RVM and Bundler.
+# The RVM path needs to be sourced. This is typically done by a login shell.
+# For Docker, we often set PATH explicitly or use `rvm do` for commands.
+# Note: GEM_HOME and BUNDLE_PATH are managed by RVM.
+ENV PATH /home/appuser/.rvm/gems/ruby-${RUBY_VERSION}/bin:/home/appuser/.rvm/gems/ruby-${RUBY_VERSION}@global/bin:/home/appuser/.rvm/rubies/ruby-${RUBY_VERSION}/bin:/home/appuser/.rvm/bin:$PATH
 
 # Copy Gemfile and Gemfile.lock to leverage Docker cache.
 # These files define Ruby dependencies. Gemfile.lock is crucial for reproducible builds.
 # Ensure Gemfile.lock is committed to your repository.
-# The --chown flag ensures these files are owned by appuser.
-COPY --chown=appuser:appuser Gemfile Gemfile.lock ./
-
-# Switch to appuser to install gems.
-USER appuser
+# Ownership is already appuser as we switched user.
+COPY Gemfile Gemfile.lock ./
 
 # Install application gems using Bundler.
-# The --jobs flag speeds up installation by parallelizing.
-# The --retry flag makes the command more resilient to transient network issues.
-RUN bundle install --jobs "$(nproc)" --retry 3
+# Ensure RVM environment is loaded using `bash -l -c`.
+RUN /bin/bash -l -c "bundle install --jobs \"$(nproc)\" --retry 3"
 
 # Switch back to root user to copy the rest of the application code
 # and the entrypoint script, ensuring correct ownership and permissions for system locations.
