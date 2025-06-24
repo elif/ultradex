@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Node.js is required for the Rails asset pipeline (e.g., esbuild, importmaps if not using Sprockets fully).
 # Yarn is a common JavaScript package manager.
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
-    && apt-get update && apt-get install -y --no-install-recommends nodejs \
+    && apt-get update && apt-get install -y nodejs \
     && npm install --global yarn \
     && rm -rf /var/lib/apt/lists/*
 
