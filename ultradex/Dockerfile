@@ -51,15 +51,24 @@ RUN groupadd --gid 1000 appuser \
 USER appuser
 WORKDIR /home/appuser
 
-# Install RVM GPG keys and RVM itself.
-# Using bash -l -c to ensure RVM environment is sourced for subsequent commands.
-RUN gpg --keyserver keyserver.ubuntu.com --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB \
-    && curl -sSL https://get.rvm.io | bash -s stable \
-    && /bin/bash -l -c "rvm install ${RUBY_VERSION} && \
-        rvm use ${RUBY_VERSION} --default && \
-        echo \"Installing Bundler version: ${BUNDLER_VERSION}\" && \
-        gem install bundler -v \"${BUNDLER_VERSION}\" && \
-        rvm cleanup all"
+# Install RVM GPG keys.
+RUN gpg --keyserver keyserver.ubuntu.com --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3 7D2BAF1CF37B13E2069D6956105BD0E739499BDB
+
+# Download and install RVM.
+RUN curl -sSL https://get.rvm.io | bash -s stable
+
+# Install Ruby using RVM.
+# Each RVM command needs to be run in a login shell that sources RVM.
+RUN /bin/bash -l -c "rvm install ${RUBY_VERSION}"
+
+# Set default Ruby version.
+RUN /bin/bash -l -c "rvm use ${RUBY_VERSION} --default"
+
+# Install Bundler.
+RUN /bin/bash -l -c "echo 'Installing Bundler version: ${BUNDLER_VERSION}' && gem install bundler -v \"${BUNDLER_VERSION}\""
+
+# Cleanup RVM.
+RUN /bin/bash -l -c "rvm cleanup all"
 
 # --- Install NVM, Node.js, and Yarn ---
 # Still as appuser, install NVM, Node.js, and Yarn in the user's home directory.
