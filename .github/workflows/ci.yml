@@ -66,37 +66,39 @@ jobs:
           echo "--- Analyzing Failure Logs ---"
 
           if [ -f "$BUILD_LOG_FILE" ]; then
-            # Look for common Docker build error patterns. This can be refined.
-            # Example: "ERROR:", "failed to build", "Step.*failed"
-            # We'll grep for these and show some context.
             echo "Analyzing Docker build log: $BUILD_LOG_FILE"
-            if grep -E -i -C 5 'ERROR|failed to build|Step [0-9]+/[0-9]+ failed|failed to fetch|not found' "$BUILD_LOG_FILE"; then
+            # Try to find specific error lines.
+            # Add more specific error patterns as needed.
+            if grep -E -i -C 5 'ERROR|failed to build|Step [0-9]+/[0-9]+ failed|failed to fetch|not found|npm: not found|Could not resolve|unable to access' "$BUILD_LOG_FILE"; then
               PROCESSED_BUILD_OR_UP_ERROR=true
               echo "--- End of relevant Docker build log excerpt ---"
             else
-              echo "No obvious critical error markers found in Docker build log, but build may have still failed."
-              # Check if the previous step explicitly said build failed
-              # This is tricky, relies on the previous step's stdout format.
-              # For now, we assume if this step ('Output Failure Logs') is running, a failure occurred.
-              # If BUILD_LOG_FILE exists, it implies build was attempted.
+              echo "No specific critical error markers found in Docker build log via grep, but build may have still failed."
+              # As a fallback if specific grep fails, but file exists, show last N lines.
+              echo "Displaying last 20 lines of Docker build log as a fallback:"
+              tail -n 20 "$BUILD_LOG_FILE"
+              PROCESSED_BUILD_OR_UP_ERROR=true # Consider it processed to avoid RSpec logs if build log exists.
             fi
           else
             echo "Docker build log ($BUILD_LOG_FILE) not found."
           fi
 
-          # Only check UP_LOG_FILE if we haven't found a definitive build error
-          if [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ] && [ -f "$UP_LOG_FILE" ]; then
-            echo "Analyzing Docker up log: $UP_LOG_FILE"
-            # Look for common docker compose up error patterns
-            if grep -E -i -C 5 'ERROR|Cannot start service|failed| unhealthy' "$UP_LOG_FILE"; then
-              PROCESSED_BUILD_OR_UP_ERROR=true
-              echo "--- End of relevant Docker up log excerpt ---"
+          # Only check UP_LOG_FILE if we haven't found a definitive build error from BUILD_LOG_FILE
+          if [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ]; then
+            if [ -f "$UP_LOG_FILE" ]; then
+              echo "Analyzing Docker up log: $UP_LOG_FILE"
+              if grep -E -i -C 5 'ERROR|Cannot start service|failed| unhealthy|exited with code' "$UP_LOG_FILE"; then
+                PROCESSED_BUILD_OR_UP_ERROR=true
+                echo "--- End of relevant Docker up log excerpt ---"
+              else
+                echo "No specific critical error markers found in Docker up log via grep."
+                echo "Displaying last 20 lines of Docker up log as a fallback:"
+                tail -n 20 "$UP_LOG_FILE"
+                PROCESSED_BUILD_OR_UP_ERROR=true # Consider it processed.
+              fi
             else
-              echo "No obvious critical error markers found in Docker up log."
+              echo "Docker up log ($UP_LOG_FILE) not found (and no build error processed)."
             fi
-          elif [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ]; {
-            echo "Docker up log ($UP_LOG_FILE) not found."
-          }
           fi
 
           # If we haven't processed a build/up error, then proceed to check app service logs
