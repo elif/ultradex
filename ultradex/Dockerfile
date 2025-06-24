@@ -41,10 +41,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --- Install Node.js and Yarn ---
 # Node.js is required for the Rails asset pipeline (e.g., esbuild, importmaps if not using Sprockets fully).
 # Yarn is a common JavaScript package manager.
-RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
-    && apt-get update && apt-get install -y nodejs npm \
+RUN set -x \
+    && curl -sL https://deb.nodesource.com/setup_${NODE_MAJOR}.x -o nodesource_setup.sh \
+    && bash nodesource_setup.sh \
+    && apt-get update \
+    && apt-get install -y nodejs npm \
     && npm install --global yarn \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rm nodesource_setup.sh
 
 # --- Create Application User ---
 # Create a non-root user 'appuser' to run the application for security best practices.
