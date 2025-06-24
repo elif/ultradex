@@ -32,48 +32,16 @@ jobs:
         run: |
           docker compose exec -T app bundle exec rspec
 
+      - name: Output Failure Logs
+        if: failure()
+        working-directory: ./ultradex
+        run: |
+          echo "--- Docker Compose Logs on Failure ---"
+          docker compose logs
+          echo "--- End Docker Compose Logs ---"
+
       - name: Stop Docker services
         if: always() # Ensure services are stopped even if previous steps fail
         working-directory: ./ultradex
         run: |
           docker compose down
-
-      - name: Capture logs on failure
-        if: failure()
-        working-directory: ./ultradex
-        run: |
-          set -x # Echo commands
-          echo "--- Debugging file writing in pre-existing directory using GITHUB_WORKSPACE ---"
-          echo "Current directory (pwd): $(pwd)"
-          echo "GITHUB_WORKSPACE is: $GITHUB_WORKSPACE"
-          echo "Verifying pre-existing directory (ls -Al $GITHUB_WORKSPACE/build_failures):"
-          ls -Al $GITHUB_WORKSPACE/build_failures || echo "ls of $GITHUB_WORKSPACE/build_failures failed or directory not found (this should not happen)"
-          echo "--- End Debugging file writing ---"
-          # Directory build_failures is now expected to exist at project root.
-          # Using $GITHUB_WORKSPACE for absolute path.
-          echo "Attempting to capture docker compose logs for run ${{ github.run_id }} at $(date)" > $GITHUB_WORKSPACE/build_failures/capture_attempt_${{ github.run_id }}.txt
-          docker compose logs >> $GITHUB_WORKSPACE/build_failures/logs_${{ github.run_id }}_$(date +%s).txt
-          echo "Log capture attempt finished for run ${{ github.run_id }} at $(date)" >> $GITHUB_WORKSPACE/build_failures/capture_attempt_${{ github.run_id }}.txt
-
-      - name: List build_failures directory # DEBUGGING STEP
-        if: failure()
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Listing GITHUB_WORKSPACE (${GITHUB_WORKSPACE}):"
-          ls -Al $GITHUB_WORKSPACE
-          echo "Listing GITHUB_WORKSPACE/build_failures (${GITHUB_WORKSPACE}/build_failures):"
-          ls -Al $GITHUB_WORKSPACE/build_failures || echo "build_failures directory not found or empty at ${GITHUB_WORKSPACE}/build_failures"
-
-      - name: Commit failure logs
-        if: failure()
-        uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: "CI: Commit failure logs for run ${{ github.run_id }}"
-          branch: ${{ github.head_ref || github.ref_name }}
-          file_pattern: build_failures/*
-          commit_user_name: "GitHub Actions"
-          commit_user_email: "actions@github.com"
-          commit_author: "GitHub Actions <actions@github.com>"
-          commit_options: '--no-dry-run --verbose'
-          add_options: '--verbose'
-          repository: .
