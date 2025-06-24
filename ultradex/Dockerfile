@@ -38,21 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Clean up apt cache to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
-# --- Install Node.js and Yarn ---
-# Node.js is required for the Rails asset pipeline (e.g., esbuild, importmaps if not using Sprockets fully).
-# Yarn is a common JavaScript package manager.
-RUN set -x \
-    && curl -sL https://deb.nodesource.com/setup_${NODE_MAJOR}.x -o nodesource_setup.sh \
-    && bash nodesource_setup.sh \
-    && apt-get update \
-    && apt-get install -y nodejs npm \
-    && npm install --global yarn \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm nodesource_setup.sh
-
 # --- Create Application User ---
 # Create a non-root user 'appuser' to run the application for security best practices.
-# This is done before RVM installation so RVM can be installed as the user.
+# This is done before RVM and NVM installation so they can be installed as the user.
 RUN groupadd --gid 1000 appuser \
     && useradd --uid 1000 --gid 1000 --shell /bin/bash --create-home appuser \
     && echo "appuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/appuser \
@@ -71,6 +59,24 @@ RUN gpg --keyserver keyserver.ubuntu.com --recv-keys 409B6B1796C275462A170311380
         rvm use ${RUBY_VERSION} --default && \
         gem install bundler -v '${BUNDLER_VERSION}' && \
         rvm cleanup all"
+
+# --- Install NVM, Node.js, and Yarn ---
+# Still as appuser, install NVM, Node.js, and Yarn in the user's home directory.
+ENV NODE_VERSION ${NODE_MAJOR}
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash \
+    && export NVM_DIR="/home/appuser/.nvm" \
+    && [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" \
+    && [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" \
+    && nvm install ${NODE_VERSION} \
+    && nvm alias default ${NODE_VERSION} \
+    && nvm use default \
+    && npm install --global yarn
+
+# Update PATH for NVM's Node.js and Yarn. This needs to be done carefully.
+# RVM paths are already set. We need to add NVM paths.
+# The NVM script typically adds NVM_DIR to .bashrc, but Docker's non-interactive shells need explicit PATH.
+ENV NVM_DIR /home/appuser/.nvm
+ENV PATH $NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH
 
 # --- Application Setup ---
 WORKDIR /usr/src/app
