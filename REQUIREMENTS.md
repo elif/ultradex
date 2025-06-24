@@ -154,10 +154,18 @@ All data access (read, write, update, delete) to Redis MUST be performed through
     *   `script:update_card_price(keys_json, args_json)`: KEYS: `card:[card_uuid]`. ARGS: `card_uuid`, `new_price`, `timestamp`. Updates price fields.
     *   `script:find_cards_by_pokemon(keys_json, args_json)`: KEYS: `idx:pokemon_cards:[pokedex_number]`. ARGS: `pokedex_number`. Returns set of `card_uuid`s.
     *   `script:add_set(keys_json, args_json)`:
-        *   KEYS: `set:[original_set_id]`, `global:next_set_release_number` (if assigning release number here).
-        *   ARGS: `original_set_id`, all set data fields as JSON string (including `release_number` if pre-assigned, or flag to assign).
-        *   Logic: Creates set hash. Optionally gets next `release_number`.
+        *   KEYS: `set:[original_set_id]`, `idx:sets_by_release_number`, (`global:next_set_release_number` - if this script is responsible for assigning a new number).
+        *   ARGS: `original_set_id`, `release_number`, `set_data_json` (JSON string of set fields like `set_name`, `series_name`, `release_date`).
+        *   Logic: Creates/updates the set hash (`set:[original_set_id]`) with fields from `set_data_json` and the `release_number`. Adds the `original_set_id` to the `idx:sets_by_release_number` sorted set with `release_number` as its score using `ZADD`. If this script also assigns `release_number` from `global:next_set_release_number`, that logic is included.
     *   `script:get_next_set_release_number(keys_json, args_json)`: KEYS: `global:next_set_release_number`. ARGS: none. Returns `INCR global:next_set_release_number`.
+    *   `script:get_all_sets_by_release_number(keys_json, args_json)`:
+        *   KEYS: `idx:sets_by_release_number`
+        *   ARGS: (optional) `with_scores` (boolean true/false, or string "WITHSCORES")
+        *   Logic: Uses `ZRANGE KEYS[1] 0 -1` (optionally with `WITHSCORES` if `ARGV[1]` is provided and true/set) to retrieve all `original_set_id`s, ordered by `release_number`.
+    *   `script:get_sets_by_release_number_range(keys_json, args_json)`:
+        *   KEYS: `idx:sets_by_release_number`
+        *   ARGS: `min_release_number`, `max_release_number`, (optional) `with_scores` (boolean true/false, or string "WITHSCORES")
+        *   Logic: Uses `ZRANGEBYSCORE KEYS[1] ARGV[1] ARGV[2]` (optionally with `WITHSCORES` if `ARGV[3]` is provided and true/set) to retrieve `original_set_id`s within the specified `release_number` range.
 
 *   **User & Collection Management Scripts:**
     *   `script:create_user_collection(keys_json, args_json)`:
