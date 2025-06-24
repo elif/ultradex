@@ -1,0 +1,36 @@
+# Ignore bundler config.
+/.bundle
+
+# Ignore Rails temporary files and logs.
+/log/*
+/tmp/*
+!/tmp/pids
+!/tmp/pids/server.pid
+
+# Ignore node_modules
+/node_modules
+
+# Ignore local secret files
+/config/master.key
+/config/credentials.yml.enc
+
+# Ignore local database files (if any, though we use PG in Docker)
+/db/*.sqlite3
+/db/*.sqlite3-journal
+
+# Ignore storage files if using Active Storage local service
+/storage/*
+
+# Ignore .git folder
+/.git
+/.gitmodules
+/.github
+
+# Ignore Docker specific files from context if they are in the same directory
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# OS-specific ignores
+.DS_Store
+Thumbs.db
