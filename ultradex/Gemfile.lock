@@ -1,0 +1,4 @@
+# This is an empty Gemfile.lock created to allow the Docker build to proceed.
+# The 'bundle install' command within the Dockerfile will populate this correctly
+# inside the image. For long-term project health, Gemfile.lock should be generated
+# by 'bundle lock' or 'bundle install' in a Ruby environment and committed to the repository.

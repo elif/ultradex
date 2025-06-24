@@ -31,6 +31,29 @@ This document provides guidelines for AI agents contributing to the UltrAdex pro
 *   Use `create_file_with_block` for new files.
 *   Always provide clear and concise commit messages when using `submit`.
 
+## Working with the Dockerized Environment
 
+This project uses Docker and Docker Compose for its development environment. This ensures all services (Rails app, PostgreSQL database, Redis) are running consistently.
+
+*   **Executing Commands:** Most development tasks that involve running commands (e.g., Rails generators, Rake tasks, `bundle install`, `yarn install`, RSpec tests) must be executed *inside* the application container. The primary service is named `app`.
+    *   Use `docker compose exec app <your_command_here>`. For example:
+        *   `docker compose exec app bin/rails g model User name:string`
+        *   `docker compose exec app bundle exec rspec`
+        *   `docker compose exec app rake db:migrate`
+    *   Remember that the `run_in_bash_session` tool in your environment executes commands on a host that *can run* Docker commands, but is not necessarily *inside* the container. Your `run_in_bash_session` commands should be prefixed with `sudo docker compose exec app ...` if they need to run within the Rails application's context. The working directory for `run_in_bash_session` is `/app/ultradex/` (the directory containing `docker-compose.yml`).
+
+*   **Service Management:**
+    *   To start all services: `sudo docker compose up -d` (from the `ultradex/` directory).
+    *   To stop all services: `sudo docker compose down` (from the `ultradex/` directory).
+    *   To view logs: `sudo docker compose logs -f app` or `sudo docker compose logs db`.
+
+*   **Modifying Docker Configuration:**
+    *   If you need to modify `Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh`, or other files crucial to the Docker setup, these changes must be carefully tested.
+    *   After such changes, attempt to rebuild the relevant image (e.g., `sudo docker compose build app`) and then restart the services (`sudo docker compose up -d`) to ensure everything still works correctly.
+    *   The environmental disk space issue you (Jules) encountered previously might prevent these commands from running successfully in the current sandbox. Report this if it occurs.
+
+*   **Refer to Documentation:** For comprehensive instructions on setting up, running, and managing the Docker environment, please consult the `DEVELOPMENT_SETUP.md` file in the repository root.
+
+*   **`Gemfile.lock`:** Ensure `ultradex/Gemfile.lock` is kept up-to-date and is consistent with `ultradex/Gemfile`. If you modify `ultradex/Gemfile`, you should run `sudo docker compose exec app bundle install` to update the lock file, and then ensure the updated `ultradex/Gemfile.lock` is part of your changes.
 
 By following these guidelines, AI agents can contribute effectively and help build a high-quality UltrAdex application.
