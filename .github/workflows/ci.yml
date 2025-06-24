@@ -40,8 +40,10 @@ jobs:
 
       - name: Capture logs on failure
         if: failure()
+        working-directory: ./ultradex
         run: |
           mkdir -p ../../build_failures
+          # Ensure the log command also uses the correct relative path for output
           docker compose logs > ../../build_failures/logs_${{ github.run_id }}_$(date +%s).txt
 
       - name: Commit failure logs
