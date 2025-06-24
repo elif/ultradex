@@ -43,18 +43,17 @@ jobs:
         working-directory: ./ultradex
         run: |
           set -x # Echo commands
-          echo "--- Debugging file writing in pre-existing directory ---"
+          echo "--- Debugging file writing in pre-existing directory using GITHUB_WORKSPACE ---"
           echo "Current directory (pwd): $(pwd)"
-          echo "Listing GITHUB_WORKSPACE from within Capture step (ls -Al ../..):"
-          ls -Al ../..
-          echo "Verifying pre-existing directory (ls -Al ../../build_failures):"
-          ls -Al ../../build_failures || echo "ls of ../../build_failures failed or directory not found (this should not happen)"
+          echo "GITHUB_WORKSPACE is: $GITHUB_WORKSPACE"
+          echo "Verifying pre-existing directory (ls -Al $GITHUB_WORKSPACE/build_failures):"
+          ls -Al $GITHUB_WORKSPACE/build_failures || echo "ls of $GITHUB_WORKSPACE/build_failures failed or directory not found (this should not happen)"
           echo "--- End Debugging file writing ---"
           # Directory build_failures is now expected to exist at project root.
-          # Path from ultradex working directory is ../../build_failures
-          echo "Attempting to capture docker compose logs for run ${{ github.run_id }} at $(date)" > ../../build_failures/capture_attempt_${{ github.run_id }}.txt
-          docker compose logs >> ../../build_failures/logs_${{ github.run_id }}_$(date +%s).txt
-          echo "Log capture attempt finished for run ${{ github.run_id }} at $(date)" >> ../../build_failures/capture_attempt_${{ github.run_id }}.txt
+          # Using $GITHUB_WORKSPACE for absolute path.
+          echo "Attempting to capture docker compose logs for run ${{ github.run_id }} at $(date)" > $GITHUB_WORKSPACE/build_failures/capture_attempt_${{ github.run_id }}.txt
+          docker compose logs >> $GITHUB_WORKSPACE/build_failures/logs_${{ github.run_id }}_$(date +%s).txt
+          echo "Log capture attempt finished for run ${{ github.run_id }} at $(date)" >> $GITHUB_WORKSPACE/build_failures/capture_attempt_${{ github.run_id }}.txt
 
       - name: List build_failures directory # DEBUGGING STEP
         if: failure()
