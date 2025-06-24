@@ -1,0 +1,10 @@
+<%# app/views/home/_turbo_content.html.erb %>
+<%= turbo_frame_tag "turbo_content_area" do %>
+  <p class="text-green-700">
+    This content was dynamically loaded into the Turbo Frame at <%= Time.now.strftime("%H:%M:%S") %>!
+  </p>
+  <p>
+    <%= link_to "Load original content again", home_turbo_frame_content_path, data: { turbo_frame: "turbo_content_area" }, class: "text-sm text-blue-500 hover:underline" %>
+    (Note: This link will reload this same partial for demo purposes. A real app might load something different or revert.)
+  </p>
+<% end %>

@@ -186,7 +186,7 @@ All data access (read, write, update, delete) to Redis MUST be performed through
         *   ARGS: `user_id`, `card_uuid`, `collection_slug`
         *   Logic: Iterates through instances of a `card_uuid` for a user, filters by `collection_slug` in their `collection_slugs_json` field.
 
-This list is not exhaustive but illustrates the principle. The application backend (e.g., Python server) will be responsible for loading these Lua scripts into Redis and calling them with appropriate arguments.
+This list is not exhaustive but illustrates the principle. The Ruby on Rails application backend will be responsible for loading these Lua scripts into Redis (e.g., during an initialization phase or on-demand) and calling them with appropriate arguments using a Ruby Redis client like `redis-rb`.
 
 ### 2.5. User-Specific Collection Data (Legacy - Now Integrated into Redis Section)
 
@@ -312,7 +312,7 @@ User preferences and settings will be stored in Redis, likely within the `user:[
 
 ### 4.4. Maintainability
 
-*   **NFR4.4.1:** The codebase shall be well-structured, adhering to relevant language-specific best practices (e.g., PEP 8 for Python).
+*   **NFR4.4.1:** The codebase shall be well-structured, adhering to relevant language-specific best practices (e.g., Ruby style guides, Rails conventions).
 *   **NFR4.4.2:** Code shall be commented appropriately to explain complex logic, data structures, or API interactions.
 *   **NFR4.4.3:** An `AGENTS.md` file will be maintained with guidelines for AI-assisted development.
 *   **NFR4.4.4:** Configuration (API keys, database paths for local dev) should be externalized from code.
@@ -373,50 +373,48 @@ User preferences and settings will be stored in Redis, likely within the `user:[
 *   **Settings View:**
     *   Tabs for: General (preferred currency, language defaults from user settings in Redis), Data (system-level API update settings, manual admin trigger, backup/restore local Redis RDB file), Placeholder (default placeholder settings from user settings in Redis).
 
-## 6. Technical Stack (Preliminary)
+## 6. Technical Stack
 
-This outlines potential technologies. Final decisions depend on project evolution (e.g., desktop vs. web app).
+This project will be developed as a web application.
 
-### 7.1. Frontend
+### 6.1. Backend Framework
 
-*   **Desktop Application:** Python with a GUI library such as CustomTkinter (modern Tkinter theming), PyQt, or Kivy.
-*   **Web Application:** HTML, CSS, JavaScript with a framework like React, Vue, or Svelte.
+*   **Ruby on Rails:** A web application framework written in Ruby. It follows the MVC (Model-View-Controller) pattern.
 
-### 7.2. Backend (primarily for Web Application or Cloud Sync)
+### 6.2. Frontend Framework
 
-*   **Python:** Frameworks like Django (full-featured) or Flask (lightweight) with Django Rest Framework / Flask-RESTful for APIs. The backend will be responsible for interacting with Redis via Lua scripts.
-*   **Redis Client Library for Python:** e.g., `redis-py`.
+*   **Hotwire:** An approach to building web applications by sending HTML, instead of JSON, over the wire. This includes:
+    *   **Turbo:** For fast page navigation and dynamic updates.
+    *   **Stimulus:** A modest JavaScript framework for HTML enhancements.
+*   **Tailwind CSS (or other CSS framework):** For styling the application. (To be decided during Rails project generation).
 
 ### 6.3. Database
 
 *   **Primary Data Store:** **Redis**. All persistent data including card information, user collections, and settings will be stored in Redis.
-    *   For local development/desktop app: A local Redis instance.
-    *   For production web application: A managed Redis service (e.g., AWS ElastiCache, Azure Cache for Redis, Google Cloud Memorystore) or a self-hosted, highly-available Redis setup (using Sentinel and/or Cluster).
-*   **Data Abstraction:** All Redis operations will be performed via **Lua scripts** executed on the Redis server.
+    *   For local development: A local Redis instance.
+    *   For production: A managed Redis service (e.g., AWS ElastiCache, Azure Cache for Redis, Google Cloud Memorystore) or a self-hosted, highly-available Redis setup (using Sentinel and/or Cluster).
+*   **Data Abstraction:** All Redis operations will be performed via **Lua scripts** executed on the Redis server. The Rails application will use a Ruby Redis client (e.g., `redis-rb`) to connect to Redis, load, and execute these Lua scripts.
+*   **Secondary Database (Optional):** While Redis is the primary data store, a traditional SQL database (e.g., PostgreSQL, MySQL, SQLite) might be used by Rails for features like user authentication (if using Devise or similar gems that rely on ActiveRecord) or other non-core data. This is secondary to Redis. For the core application data (cards, collections, etc.), Redis remains the exclusive store.
 
 ### 6.4. External APIs
 
 *   **Pokémon TCG Data:** `https://pokemontcg.io/` (primary candidate, needs final vetting).
 *   **Currency Conversion:** A reliable API for exchange rates if multi-currency support (FR3.7.1) is implemented (e.g., [https://www.exchangerate-api.com/](https://www.exchangerate-api.com/), or similar free/freemium tier).
 
-## 8. Deployment Considerations
+## 7. Deployment Considerations
 
-### 8.1. Desktop Application
+The web application can be deployed using various methods:
 
-*   Packaging into executable installers for major OS:
-    *   **Windows:** PyInstaller, cx_Freeze.
-    *   **macOS:** PyInstaller, py2app.
-    *   **Linux:** PyInstaller, or distribution through package managers (e.g., Flatpak, Snap).
+*   **Containerization:** Using Docker is highly recommended for packaging the Rails application, Redis (if not using a managed service), and any other dependencies. This allows for consistent environments across development, staging, and production.
+    *   Docker Compose can be used for local development and simpler multi-container setups.
+    *   Kubernetes or similar orchestration platforms for scalable production deployments.
+*   **Cloud Platforms:**
+    *   **PaaS (Platform as a Service):** Services like Heroku, Render, Fly.io, or AWS Elastic Beanstalk can simplify deployment and management of Rails applications. They often have integrated support or add-ons for Redis.
+    *   **IaaS (Infrastructure as a Service):** Deploying on virtual machines (e.g., AWS EC2, Google Compute Engine, Azure VMs) provides more control but requires more manual setup for the Rails server (e.g., Puma, Unicorn), web server (e.g., Nginx), Redis, and deployment pipelines.
+*   **Web Server:** A robust web server like Nginx or Apache is typically used in front of the Rails application server (e.g., Puma) to handle static assets, SSL termination, and load balancing.
+*   **Background Jobs:** If the application involves background tasks (e.g., fetching data from the Pokémon TCG API, processing images), a background job framework like Sidekiq (which uses Redis) or Good Job will be needed and deployed alongside the web application.
 
-### 8.2. Web Application
-
-*   Containerization using Docker.
-*   Hosted on cloud platforms such as:
-    *   PaaS (Platform as a Service): Heroku, Google App Engine, AWS Elastic Beanstalk.
-    *   IaaS (Infrastructure as a Service): AWS EC2, Google Compute Engine, Azure VMs (requires more manual setup).
-*   Web server (e.g., Gunicorn, Nginx).
-
-## 9. Glossary
+## 8. Glossary
 
 *   **Master Set:** For this project, all unique front printings of a card (as identified by `card_uuid`) for a specific Pokémon species. This includes different artworks, holographic patterns (as per `variant_code`), frame types (as per `frame_code`), promotional stamps, and other distinct visual variations captured by the `card_uuid` definition and supporting attributes.
 *   **`card_uuid` (Card Unique Universal Identifier)**: The primary identifier for a unique card printing, with the format `[set_release_number]-[pokedex_number]-[variant_code]-[frame_code]`. See section 2.1 for full details.
