@@ -88,11 +88,8 @@ This section details the Redis structures used to store UltrAdex data. All inter
         *   `set_name`: (e.g., "Brilliant Stars")
         *   `series_name`: (e.g., "Sword & Shield Series")
         *   `release_date`: (e.g., "2022-02-25")
-        *   `release_number`: The chronological `set_release_number` used in `card_uuid` (e.g., `123`). This is critical for generating `card_uuid`s.
+        *   `release_number`: The chronological `set_release_number` used in `card_uuid` (e.g., `123`). This is populated during data ingestion from the external API.
         *   `total_cards`: (optional, total cards in the set from API)
-*   **Global Set Release Number Counter**: Redis Integer.
-    *   **Key**: `global:next_set_release_number`
-    *   **Usage**: Atomically incremented (`INCR`) to get a new `set_release_number` when a new set is first processed.
 
 #### 2.3.2. Indexing Structures (Primarily Redis Sets):
 
@@ -105,10 +102,7 @@ This section details the Redis structures used to store UltrAdex data. All inter
 *   **Illustrator to Cards Index**:
     *   **Key**: `illustrator_cards:[normalized_illustrator_name]` (e.g., `illustrator_cards:ken_sugimori`)
     *   **Members**: Set of `[card_uuid]`
-*   **Card Name Search Index (Simplified)**: While Redis is not a full-text search engine, simple name matching can be supported.
-    *   **Key**: `card_name_words:[word_token]` (e.g., `card_name_words:pikachu`, `card_name_words:vmax`)
-    *   **Members**: Set of `[card_uuid]` that include this word in their `card_name`. (Requires preprocessing of card names).
-    *   *Alternative*: Use Redis Search module for more advanced searching if available.
+*   *(Note: The previous "Card Name Search Index (Simplified)" using `card_name_words:[word_token]` has been removed. Card name searching and other text-based searches will be handled by Redis Search capabilities provided by Redis Stack. See Section 3.4 and 6.3 for more details.)*
 
 #### 2.3.3. User-Specific Collection Data:
 
@@ -124,16 +118,34 @@ This data is stored per user and requires user identification.
 *   **Index: User's Collections**: Redis Set. Stores slugs of all collections for a user.
     *   **Key**: `user:[user_id]:collections`
     *   **Members**: Set of `[collection_slug]`
-*   **User Collection Cards & Details**: Redis Hash. Stores the cards within a specific user collection and their ownership details for that card *within that collection*. A `card_uuid` can only appear once as a field in this hash, signifying its unique presence in the collection.
+*   **User Collection Cards & Details**: RedisJSON Document. Stores the cards within a specific user collection and their ownership details for that card *within that collection*.
     *   **Key**: `user:[user_id]:collection_cards:[collection_slug]`
-    *   **Fields (within the Hash)**: `[card_uuid]` (the unique identifier for the card printing)
-    *   **Value (for each field)**: A JSON string containing the following attributes for the card *within this specific collection*:
-        *   `condition`: (e.g., "Near Mint", "Played", "Damaged") - User-defined condition of this card in this collection.
-        *   `language_owned`: (e.g., "English", "Japanese") - Language of this card in this collection.
-        *   `purchase_price`: (e.g., `10.50`) - Price paid for this card, if applicable to its entry in this collection.
-        *   `purchase_date`: (e.g., "2023-01-15") - Date acquired, if applicable to its entry in this collection.
-        *   `user_notes_on_owned_card`: (e.g., "Graded PSA 9", "From childhood binder") - User's notes specific to this card in this collection.
-        *   `added_to_collection_date`: Timestamp - When the card was added to this specific collection.
+    *   **Structure**: The value at this key is a JSON document. The root of this document is an object where:
+        *   Each **key** in the root object is a `[card_uuid]` (string).
+        *   The **value** associated with each `[card_uuid]` key is a JSON object containing the following attributes for that card *within this specific collection*:
+            *   `condition`: (string, e.g., "Near Mint", "Played", "Damaged")
+            *   `language_owned`: (string, e.g., "English", "Japanese")
+            *   `purchase_price`: (number, e.g., `10.50`)
+            *   `purchase_date`: (string, e.g., "2023-01-15")
+            *   `user_notes_on_owned_card`: (string, e.g., "Graded PSA 9")
+            *   `added_to_collection_date`: (string, Timestamp, e.g., ISO8601)
+    *   *Example*: For key `user:123:collection_cards:pikachu-master`, the JSON document might look like:
+        ```json
+        {
+          "025-001-N-S": {
+            "condition": "Near Mint",
+            "language_owned": "English",
+            "purchase_price": 5.20,
+            "user_notes_on_owned_card": "Pulled from pack"
+          },
+          "025-002-H-S": {
+            "condition": "Played",
+            "language_owned": "Japanese",
+            "purchase_price": 2.00,
+            "added_to_collection_date": "2023-01-01T10:00:00Z"
+          }
+        }
+        ```
 
 ### 2.4. Data Abstraction Layer (Redis Lua Scripts)
 
@@ -154,10 +166,9 @@ All data access (read, write, update, delete) to Redis MUST be performed through
     *   `script:update_card_price(keys_json, args_json)`: KEYS: `card:[card_uuid]`. ARGS: `card_uuid`, `new_price`, `timestamp`. Updates price fields.
     *   `script:find_cards_by_pokemon(keys_json, args_json)`: KEYS: `pokemon_cards:[national_pokedex_number]`. ARGS: `national_pokedex_number`. Returns set of `card_uuid`s. (Note: `[pokedex_number]` updated to `[national_pokedex_number]` for consistency).
     *   `script:add_set(keys_json, args_json)`:
-        *   KEYS: `set:[original_set_id]`, `sets_by_release_number`, (`global:next_set_release_number` - if this script is responsible for assigning a new number).
+        *   KEYS: `set:[original_set_id]`, `sets_by_release_number`.
         *   ARGS: `original_set_id`, `release_number`, `set_data_json` (JSON string of set fields like `set_name`, `series_name`, `release_date`).
-        *   Logic: Creates/updates the set hash (`set:[original_set_id]`) with fields from `set_data_json` and the `release_number`. Adds the `original_set_id` to the `idx:sets_by_release_number` sorted set with `release_number` as its score using `ZADD`. If this script also assigns `release_number` from `global:next_set_release_number`, that logic is included.
-    *   `script:get_next_set_release_number(keys_json, args_json)`: KEYS: `global:next_set_release_number`. ARGS: none. Returns `INCR global:next_set_release_number`.
+        *   Logic: Creates/updates the set hash (`set:[original_set_id]`) with fields from `set_data_json` and the `release_number`. Adds the `original_set_id` to the `sets_by_release_number` sorted set with `release_number` as its score using `ZADD`. (The `release_number` is assumed to be provided, determined during data ingestion).
     *   `script:get_all_sets_by_release_number(keys_json, args_json)`:
         *   KEYS: `sets_by_release_number`
         *   ARGS: (optional) `with_scores` (boolean true/false, or string "WITHSCORES")
@@ -173,25 +184,25 @@ All data access (read, write, update, delete) to Redis MUST be performed through
         *   ARGS: `user_id`, `collection_slug`, collection metadata JSON (for `display_name`, `target_pokemon_pokedex_numbers_json`, `description`).
         *   Logic: Creates the collection metadata hash and adds the `collection_slug` to the user's set of collections.
     *   `script:add_card_to_collection(keys_json, args_json)`:
-        *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
-        *   ARGS: `user_id`, `collection_slug`, `card_uuid`, `details_json` (JSON string with: `condition`, `language_owned`, `purchase_price`, `purchase_date`, `user_notes_on_owned_card`, `added_to_collection_date`).
-        *   Logic: Uses `HSET` to add or update the `card_uuid` with its `details_json` in the specified user's collection hash.
+        *   KEYS: `user:[user_id]:collection_cards:[collection_slug]` (This key points to a RedisJSON document)
+        *   ARGS: `card_uuid`, `details_json_object` (A JSON string representing the object of card details: `{"condition":"NM", "purchase_price":10.0, ...}`).
+        *   Logic: Uses `JSON.SET KEYS[1] $.ARGV[1] ARGV[2]` to set the card's details object at the specified `card_uuid` path within the JSON document. Creates the document if KEYS[1] does not exist.
     *   `script:remove_card_from_collection(keys_json, args_json)`:
         *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
-        *   ARGS: `user_id`, `collection_slug`, `card_uuid`.
-        *   Logic: Uses `HDEL` to remove the `card_uuid` (and its details) from the specified user's collection hash.
+        *   ARGS: `card_uuid`.
+        *   Logic: Uses `JSON.DEL KEYS[1] $.ARGV[1]` to remove the card's entry (the object associated with `card_uuid`) from the JSON document.
     *   `script:get_card_in_collection(keys_json, args_json)`:
         *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
-        *   ARGS: `user_id`, `collection_slug`, `card_uuid`.
-        *   Logic: Uses `HGET` to retrieve the `details_json` for the specified `card_uuid` from the user's collection hash. Returns the JSON string.
+        *   ARGS: `card_uuid`.
+        *   Logic: Uses `JSON.GET KEYS[1] $.ARGV[1]` to retrieve the JSON object for the specified `card_uuid`. Returns the JSON object as a string.
     *   `script:get_collection_cards(keys_json, args_json)`:
         *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
-        *   ARGS: `user_id`, `collection_slug`.
-        *   Logic: Uses `HGETALL` to retrieve all `card_uuid`s (fields) and their `details_json` (values) from the specified user's collection hash. Returns a list of alternating fields and values.
+        *   ARGS: None.
+        *   Logic: Uses `JSON.GET KEYS[1] $` to retrieve the entire JSON document (which is an object of `card_uuid` -> details). Returns the JSON document as a string. Alternatively, could use `JSON.OBJKEYS KEYS[1] $` to get just the `card_uuid`s. For now, assume returns full document.
     *   `script:update_card_in_collection(keys_json, args_json)`:
         *   KEYS: `user:[user_id]:collection_cards:[collection_slug]`
-        *   ARGS: `user_id`, `collection_slug`, `card_uuid`, `details_json` (JSON string with updated details).
-        *   Logic: Uses `HSET` (same as `script:add_card_to_collection`) to update the `details_json` for an existing `card_uuid` in the collection hash. If the card is not already in the collection, it will be added.
+        *   ARGS: `card_uuid`, `details_json_object` (A JSON string representing the updated object of card details).
+        *   Logic: Uses `JSON.SET KEYS[1] $.ARGV[1] ARGV[2]` (same as `add_card_to_collection`) to update the card's details object.
     *   `script:get_user_collections_metadata(keys_json, args_json)`: (To list all collections for a user)
         *   KEYS: `user:[user_id]:collections` (the Set of collection slugs)
         *   ARGS: `user_id`
@@ -263,12 +274,14 @@ This data is stored locally or synced if user accounts are implemented. (This se
 
 ### 3.4. Search and Filtering
 
+*(Note: Text-based search functionalities, such as searching by Card Name, Pokémon Species Name, Illustrator Name, card text/description (if added to data model), etc., will be powered by **Redis Search (RediSearch)**, a module of Redis Stack. This allows for advanced full-text search capabilities beyond simple keyword matching on indexed terms.)*
+
 *   **FR3.4.1:** Users shall be able to search the entire card database by:
-    *   Pokémon Species Name
-    *   Card Name
-    *   Set Name
-    *   Illustrator Name
-    *   National Pokédex Number
+    *   Pokémon Species Name (via Redis Search)
+    *   Card Name (via Redis Search)
+    *   Set Name (can be exact match via existing indexes or Redis Search if partial matching is desired)
+    *   Illustrator Name (via Redis Search, on normalized names)
+    *   National Pokédex Number (exact match via `pokemon_cards:[national_pokedex_number]` index)
 *   **FR3.4.2:** Users shall be able to filter search results by:
     *   Set Name
     *   Series Name
@@ -401,11 +414,13 @@ This project will be developed as a web application.
 
 ### 6.3. Database
 
-*   **Primary Data Store:** **Redis**. All persistent data including card information, user collections, and settings will be stored in Redis.
-    *   For local development: A local Redis instance.
-    *   For production: A managed Redis service (e.g., AWS ElastiCache, Azure Cache for Redis, Google Cloud Memorystore) or a self-hosted, highly-available Redis setup (using Sentinel and/or Cluster).
-*   **Data Abstraction:** All Redis operations will be performed via **Lua scripts** executed on the Redis server. The Rails application will use a Ruby Redis client (e.g., `redis-rb`) to connect to Redis, load, and execute these Lua scripts.
-*   **Secondary Database (Optional):** While Redis is the primary data store, a traditional SQL database (e.g., PostgreSQL, MySQL, SQLite) might be used by Rails for features like user authentication (if using Devise or similar gems that rely on ActiveRecord) or other non-core data. This is secondary to Redis. For the core application data (cards, collections, etc.), Redis remains the exclusive store.
+*   **Primary Data Store:** **Redis Stack**. All persistent data including card information, user collections, and settings will be stored in Redis, leveraging advanced features provided by Redis Stack.
+    *   **RedisJSON:** Used for storing and manipulating complex JSON objects directly within Redis (e.g., for user collection card details). This allows for atomic operations on nested elements.
+    *   **Redis Search (RediSearch):** Used to provide powerful full-text search capabilities across card data (e.g., searching card names, Pokémon species, illustrators).
+    *   For local development: A local Redis Stack instance.
+    *   For production: A managed Redis service that supports Redis Stack modules (e.g., Redis Enterprise Cloud, specific offerings on AWS/Azure/GCP that include these modules) or a self-hosted, highly-available Redis Stack setup.
+*   **Data Abstraction:** Core data manipulation logic will continue to be encapsulated in **Lua scripts** executed on the Redis server. These scripts will now also be able to leverage RedisJSON and Redis Search commands where appropriate. The Rails application will use a Ruby Redis client (e.g., `redis-rb`, ensuring compatibility with Redis Stack commands) to connect, load, and execute these Lua scripts.
+*   **Secondary Database (Optional):** While Redis Stack is the primary data store, a traditional SQL database (e.g., PostgreSQL, MySQL, SQLite) might be used by Rails for features like user authentication (if using Devise or similar gems that rely on ActiveRecord) or other non-core data. This is secondary to Redis. For the core application data (cards, collections, etc.), Redis Stack remains the exclusive store.
 
 ### 6.4. External APIs
 
