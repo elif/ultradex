@@ -57,7 +57,8 @@ RUN gpg --keyserver keyserver.ubuntu.com --recv-keys 409B6B1796C275462A170311380
     && curl -sSL https://get.rvm.io | bash -s stable \
     && /bin/bash -l -c "rvm install ${RUBY_VERSION} && \
         rvm use ${RUBY_VERSION} --default && \
-        gem install bundler -v '${BUNDLER_VERSION}' && \
+        echo \"Installing Bundler version: ${BUNDLER_VERSION}\" && \
+        gem install bundler -v \"${BUNDLER_VERSION}\" && \
         rvm cleanup all"
 
 # --- Install NVM, Node.js, and Yarn ---
