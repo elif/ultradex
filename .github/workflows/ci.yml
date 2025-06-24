@@ -15,7 +15,7 @@ jobs:
       - name: Set up Docker Compose and Build services
         working-directory: ./ultradex
         run: |
-          docker compose build
+          docker compose build --no-cache
           docker compose up -d
 
       - name: Prepare test database
