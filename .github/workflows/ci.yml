@@ -37,3 +37,20 @@ jobs:
         working-directory: ./ultradex
         run: |
           docker compose down
+
+      - name: Capture logs on failure
+        if: failure()
+        run: |
+          mkdir -p ../../build_failures
+          docker compose logs > ../../build_failures/logs_${{ github.run_id }}_$(date +%s).txt
+
+      - name: Commit failure logs
+        if: failure()
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "CI: Commit failure logs for run ${{ github.run_id }}"
+          branch: ${{ github.head_ref || github.ref_name }}
+          file_pattern: build_failures/*
+          commit_user_name: "GitHub Actions"
+          commit_user_email: "actions@github.com"
+          commit_author: "GitHub Actions <actions@github.com>"
