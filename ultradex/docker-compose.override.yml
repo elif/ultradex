@@ -1,4 +1,3 @@
-version: '3.8' # Match the version of your main docker-compose.yml if specified
 services:
   app:
     volumes:

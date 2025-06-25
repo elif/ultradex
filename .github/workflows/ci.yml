@@ -42,7 +42,7 @@ jobs:
       - name: Run RSpec tests
         working-directory: ./ultradex
         run: |
-          docker compose exec -T app bundle exec rspec
+          docker compose exec -T app sh -c "chown appuser:appuser Gemfile.lock || true; chmod u+w Gemfile.lock || true; bundle exec rspec"
 
       - name: Output Failure Logs
         if: failure()
