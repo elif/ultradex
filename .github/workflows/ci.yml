@@ -17,7 +17,7 @@ jobs:
         run: |
           set -e # Ensure script exits on first error
           echo "Running docker compose build..."
-          docker compose build > $GITHUB_WORKSPACE/docker_build_output.log 2>&1
+          docker compose -f docker-compose.yml build > $GITHUB_WORKSPACE/docker_build_output.log 2>&1
           BUILD_EXIT_CODE=$?
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "Docker compose build failed with exit code $BUILD_EXIT_CODE. Full log:"
@@ -27,7 +27,7 @@ jobs:
           echo "Docker compose build successful."
 
           echo "Running docker compose up -d..."
-          docker compose up -d > $GITHUB_WORKSPACE/docker_up_output.log 2>&1
+           docker compose -f docker-compose.yml up -d > $GITHUB_WORKSPACE/docker_up_output.log 2>&1
           UP_EXIT_CODE=$?
           if [ $UP_EXIT_CODE -ne 0 ]; then
             echo "Docker compose up -d failed with exit code $UP_EXIT_CODE. Full log:"
@@ -42,7 +42,7 @@ jobs:
       - name: Debug Container Environment
         working-directory: ./ultradex
         run: |
-          docker compose exec -T --user root app sh -c "\
+          docker compose -f docker-compose.yml exec -T --user root app sh -c "\
           echo '--- Running as root ---'; \
           whoami; \
           pwd; \
@@ -101,7 +101,7 @@ jobs:
       - name: Run RSpec tests
         working-directory: ./ultradex
         run: |
-          docker compose exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; su appuser -c 'source /home/appuser/.rvm/scripts/rvm && cd /usr/src/app && bundle exec rspec'"
+          docker compose -f docker-compose.yml exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; su appuser -c 'source /home/appuser/.rvm/scripts/rvm && cd /usr/src/app && bundle exec rspec'"
 
       - name: Output Failure Logs
         if: failure()
@@ -142,10 +142,10 @@ jobs:
 
           if [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ]; then
             echo "No critical errors found in build/up logs, or logs not found. Checking application service ('app') logs..."
-            if [ -n "$(docker compose ps -q app)" ] || docker compose ps app | grep -iq 'exited'; then
+            if [ -n "$(docker compose -f docker-compose.yml ps -q app)" ] || docker compose -f docker-compose.yml ps app | grep -iq 'exited'; then
               # RSpec logs benefit from some context.
-              docker compose logs app | grep -E -A 30 'Failures:|Failure/Error:|Failed examples:' \
-              || (echo "No RSpec failure markers found in 'app' service logs. Dumping last 50 lines of 'app' service as fallback." && docker compose logs app | tail -n 50)
+              docker compose -f docker-compose.yml logs app | grep -E -A 30 'Failures:|Failure/Error:|Failed examples:' \
+              || (echo "No RSpec failure markers found in 'app' service logs. Dumping last 50 lines of 'app' service as fallback." && docker compose -f docker-compose.yml logs app | tail -n 50)
             else
               echo "The 'app' service does not appear to have been active. No application logs to display."
             fi
@@ -155,4 +155,4 @@ jobs:
         if: always() # Ensure services are stopped even if previous steps fail
         working-directory: ./ultradex
         run: |
-          docker compose down
+          docker compose -f docker-compose.yml down
