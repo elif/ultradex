@@ -10,10 +10,30 @@ jobs:
       pr_number: ${{ steps.cpr.outputs.pull-request-number }}
       pr_url: ${{ steps.cpr.outputs.pull-request-url }}
       branch_name: ${{ github.ref_name }} # Capture branch name
+      # Pass the result of the test step
+      test_conclusion: ${{ steps.rspec_tests.outcome }}
+
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Create Pull Request
+        id: cpr
+        if: github.ref_type == 'branch' && github.ref_name != 'main' && github.ref_name != 'update-ci-workflow-agents-md' # Only run for new branches, not tags, and not for main branch or the previous branch from this work
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: Create PR for ${{ github.ref_name }}
+          branch: ${{ github.ref_name }} # The branch that was just created
+          base: main # Target branch for the PR
+          title: 'PR for branch: ${{ github.ref_name }}'
+          body: |
+            Automated PR created for branch `${{ github.ref_name }}`.
+            CI tests will run shortly.
+            Action run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          labels: automated pr
+          draft: false
 
       - name: Set up Docker Compose and Build services
         working-directory: ./ultradex
@@ -36,25 +56,10 @@ jobs:
 
       - name: Run RSpec tests
         id: rspec_tests
+        continue-on-error: true # Allow workflow to continue to PR commenting even if tests fail
         working-directory: ./ultradex
         run: |
           docker compose exec -T app bundle exec rspec
-
-      - name: Create Pull Request
-        id: cpr
-        if: github.ref_type == 'branch' && github.ref_name != 'main' # Only run for branches, not tags, and not for main branch
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: Create PR for ${{ github.ref_name }}
-          branch: ${{ github.ref_name }} # The branch that was just created
-          base: main # Target branch for the PR
-          title: 'PR for branch: ${{ github.ref_name }}'
-          body: |
-            Automated PR created for branch `${{ github.ref_name }}`.
-            Action run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          labels: automated pr
-          draft: false
 
       - name: Stop Docker services
         if: always() # Ensure services are stopped even if previous steps fail
@@ -65,10 +70,11 @@ jobs:
   comment_on_pr:
     runs-on: ubuntu-latest
     needs: build_and_test
-    if: always() && needs.build_and_test.outputs.pr_number != '' # Only run if a PR was created
+    # Ensure this job runs if a PR was created, regardless of build_and_test outcome (due to continue-on-error in rspec)
+    if: always() && needs.build_and_test.outputs.pr_number != ''
 
     steps:
-      - name: Checkout code # Needed for github-script context if accessing local files, though not strictly here
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Comment on Pull Request
@@ -79,29 +85,22 @@ jobs:
             const prNumber = ${{ needs.build_and_test.outputs.pr_number }};
             const prUrl = "${{ needs.build_and_test.outputs.pr_url }}";
             const branchName = "${{ needs.build_and_test.outputs.branch_name }}";
-            const runId = ${{ github.run_id }};
+            const testConclusion = "${{ needs.build_and_test.outputs.test_conclusion }}"; // 'success', 'failure', 'skipped', etc.
+            const overallConclusion = "${{ needs.build_and_test.result }}"; // 'success', 'failure', 'skipped', 'cancelled'
+
+            const runId = context.runId;
             const repo = context.repo;
             const runUrl = `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${runId}`;
-            let commentBody = `CI Run for branch **${branchName}** completed.\n\n`;
 
-            commentBody += `**Workflow Status:** ${context.payload.workflow_run ? (context.payload.workflow_run.conclusion === 'success' ? '✅ Success' : '❌ Failure') : (job.status === 'success' ? '✅ Success' : '❌ Failure') }\n`;
-            commentBody += `**Pull Request:** ${prUrl || 'PR not created or URL unavailable.'}\n`;
+            let commentBody = `CI Run for branch **${branchName}** completed.\n\n`;
+            commentBody += `**Pull Request:** ${prUrl || 'PR URL not available.'}\n`;
             commentBody += `**Action Run Details:** [View Workflow Run](${runUrl})\n\n`;
 
-            // Attempt to get job status from the build_and_test job
-            // This is a bit indirect; ideally, you'd pass specific test results if needed.
-            // For now, a general status based on the 'needs' context.
-            const buildTestJob = (await github.rest.actions.listJobsForWorkflowRun({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.runId,
-            })).data.jobs.find(job => job.name === 'build_and_test');
-
-            if (buildTestJob) {
-              commentBody += `**Build and Test Job Status:** ${buildTestJob.conclusion === 'success' ? '✅ Succeeded' : `❌ ${buildTestJob.conclusion}`}\n`;
-              // You could add more details here, e.g., link to specific steps or extract test summaries if they were output as artifacts.
+            commentBody += `**Overall CI Status:** ${overallConclusion === 'success' ? '✅ Success' : `❌ ${overallConclusion || 'Unknown'}`}\n`;
+            if (testConclusion) {
+              commentBody += `**RSpec Tests Result:** ${testConclusion === 'success' ? '✅ Passed' : (testConclusion === 'skipped' ? '⚪ Skipped' : `❌ Failed (${testConclusion})`)}\n`;
             } else {
-              commentBody += "Could not retrieve detailed status for the 'build_and_test' job.\n";
+              commentBody += "**RSpec Tests Result:** Not available (step might have been skipped or data not passed).\n";
             }
 
             await github.rest.issues.createComment({
