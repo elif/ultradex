@@ -71,15 +71,35 @@ jobs:
           cd /usr/src/app && echo 'cd /usr/src/app successful. New pwd:' && pwd || echo 'cd /usr/src/app FAILED'; \
           echo 'Listing /usr/src/app as appuser (after cd and RVM source):'; \
           ls -la; \
+          echo 'Verifying config/environment.rb from PWD:'; \
+          ls -la config/environment.rb || echo 'config/environment.rb NOT FOUND from PWD'; \
+          echo 'Verifying spec/rails_helper.rb from PWD:'; \
+          ls -la spec/rails_helper.rb || echo 'spec/rails_helper.rb NOT FOUND from PWD'; \
           echo 'appuser environment variables (after cd and RVM source):'; \
           env; \
+          echo 'Specific Bundler/Ruby Env Vars:'; \
+          echo \\\"BUNDLE_GEMFILE: \\\$BUNDLE_GEMFILE\\\"; \
+          echo \\\"RUBYLIB: \\\$RUBYLIB\\\"; \
+          echo \\\"GEM_HOME: \\\$GEM_HOME\\\"; \
+          echo \\\"GEM_PATH: \\\$GEM_PATH\\\"; \
           echo 'Attempting to touch Gemfile.lock as appuser (after cd and RVM source):'; \
           touch Gemfile.lock && echo 'Touch Gemfile.lock successful' || echo 'Touch Gemfile.lock FAILED'; \
-          echo 'Checking bundler paths as appuser (after cd and RVM source):'; \
-          bundle_path=\\\$(bundle show bundler); \
-          echo \\\"Bundler path: \\\$bundle_path\\\"; \
+          echo 'Running bundle install --local as a check (output will follow):'; \
+          bundle install --local || echo 'bundle install --local FAILED'; \
+          echo 'Running bundle check (output will follow):'; \
           bundle check || echo 'Bundle check FAILED'; \
+          echo 'Running bundle env (output will follow):'; \
           bundle env || echo 'Bundle env FAILED'; \
+          echo 'Ruby \\\$LOAD_PATH under bundle exec (from /usr/src/app):'; \
+          bundle exec ruby -e 'puts \\\$LOAD_PATH' || echo 'Failed to get \\\$LOAD_PATH'; \
+          echo 'Attempting to resolve ../config/environment from /usr/src/app/spec via Ruby:'; \
+          bundle exec ruby -e \"puts File.expand_path('../config/environment', '/usr/src/app/spec/rails_helper.rb')\" || echo 'Failed to resolve path'; \
+          echo 'Content of spec/rails_helper.rb:'; \
+          cat spec/rails_helper.rb || echo 'Failed to cat spec/rails_helper.rb'; \
+          echo 'Attempting to require config/environment directly via bundle exec ruby:'; \
+          bundle exec ruby -e \\\"begin; puts 'Attempting to load /usr/src/app/config/environment.rb'; require '/usr/src/app/config/environment.rb'; puts 'Successfully required /usr/src/app/config/environment.rb'; rescue LoadError => e; puts \\\\\\\"Failed to require /usr/src/app/config/environment.rb: \#{e.message}\\\\\\\"; puts e.backtrace.join('\\\\n'); end\\\" || echo 'Ruby direct require test failed'; \
+          echo 'Attempting to require_relative ../config/environment from spec/rails_helper.rb context via bundle exec ruby:'; \
+          bundle exec ruby -e \\\"Dir.chdir('/usr/src/app/spec') do; begin; puts 'Attempting to load ../config/environment from /usr/src/app/spec'; require_relative '../config/environment'; puts 'Successfully required_relative ../config/environment from spec/'; rescue LoadError => e; puts \\\\\\\"Failed to require_relative ../config/environment from spec/: \#{e.message}\\\\\\\"; puts e.backtrace.join('\\\\n'); end; end\\\" || echo 'Ruby require_relative test failed'; \
           \" \
           "
 
