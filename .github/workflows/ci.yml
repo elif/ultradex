@@ -39,6 +39,46 @@ jobs:
           fi
           echo "Docker compose up -d successful."
 
+      - name: Debug Container Environment
+        working-directory: ./ultradex
+        run: |
+          docker compose exec -T --user root app sh -c "\
+          echo '--- Running as root ---'; \
+          whoami; \
+          pwd; \
+          echo 'Listing /usr/src/app as root:'; \
+          ls -la /usr/src/app; \
+          echo 'Permissions of /usr/src/app/Gemfile.lock as root:'; \
+          stat /usr/src/app/Gemfile.lock || echo 'Gemfile.lock not found by root'; \
+          echo 'Verifying appuser existence and details:'; \
+          id appuser || echo 'appuser not found'; \
+          cat /etc/passwd | grep appuser || echo 'appuser not in /etc/passwd'; \
+          echo 'Root environment variables:'; \
+          env; \
+          echo 'Attempting chmod 777 /usr/src/app/Gemfile.lock as root:'; \
+          cd /usr/src/app && chmod -v 777 Gemfile.lock || echo 'chmod as root failed or Gemfile.lock not found in /usr/src/app'; \
+          echo 'Listing /usr/src/app after root chmod:'; \
+          ls -la /usr/src/app; \
+          echo '--- Switching to appuser for further checks ---'; \
+          echo 'Running tests as appuser via su appuser -c \"...\"'; \
+          su appuser -c \"\
+          echo '--- Running as appuser (via su appuser -c) ---'; \
+          whoami; \
+          pwd; \
+          echo 'Listing /usr/src/app as appuser:'; \
+          ls -la /usr/src/app; \
+          echo 'appuser environment variables:'; \
+          env; \
+          echo 'Attempting to touch Gemfile.lock as appuser:'; \
+          touch /usr/src/app/Gemfile.lock && echo 'Touch Gemfile.lock successful' || echo 'Touch Gemfile.lock FAILED'; \
+          echo 'Checking bundler paths as appuser:'; \
+          bundle_path=\\\$(bundle show bundler); \
+          echo \\\"Bundler path: \\\$bundle_path\\\"; \
+          bundle check || echo 'Bundle check FAILED'; \
+          bundle env || echo 'Bundle env FAILED'; \
+          \" \
+          "
+
       - name: Run RSpec tests
         working-directory: ./ultradex
         run: |
