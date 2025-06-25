@@ -69,13 +69,15 @@ jobs:
           source /home/appuser/.rvm/scripts/rvm && echo 'RVM Sourced. Ruby version:' && ruby -v || echo 'RVM Sourcing FAILED or ruby -v failed'; \
           echo 'Attempting cd /usr/src/app as appuser (after RVM source)...'; \
           cd /usr/src/app && echo 'cd /usr/src/app successful. New pwd:' && pwd || echo 'cd /usr/src/app FAILED'; \
-          echo 'Listing /usr/src/app as appuser (after cd and RVM source):'; \
+          echo 'Listing /usr/src/app as appuser:'; \
           ls -la; \
+          echo 'Listing /usr/src/app/config as appuser:'; \
+          ls -la config || echo '/usr/src/app/config NOT FOUND or not listable by appuser'; \
           echo 'Verifying config/environment.rb from PWD:'; \
           ls -la config/environment.rb || echo 'config/environment.rb NOT FOUND from PWD'; \
           echo 'Verifying spec/rails_helper.rb from PWD:'; \
           ls -la spec/rails_helper.rb || echo 'spec/rails_helper.rb NOT FOUND from PWD'; \
-          echo 'appuser environment variables (after cd and RVM source):'; \
+          echo 'appuser environment variables:'; \
           env; \
           echo 'Specific Bundler/Ruby Env Vars:'; \
           echo BUNDLE_GEMFILE: \\\$BUNDLE_GEMFILE; \
