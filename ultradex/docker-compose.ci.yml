@@ -1,9 +1,0 @@
-version: '3.8' # Match version with the main docker-compose.yml if specified, or use a common one.
-services:
-  app:
-    volumes:
-      # This overrides the 'volumes' section for the 'app' service.
-      # We only include volumes that should be active in CI.
-      # Crucially, we omit the `.:/usr/src/app` mapping.
-      - bundle_cache:/usr/local/bundle
-      # The BOOTSNAP_CACHE_DIR is set to /usr/local/bundle/bootsnap, so it's covered by bundle_cache.

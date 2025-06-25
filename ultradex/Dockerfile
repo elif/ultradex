@@ -103,11 +103,10 @@ ENV PATH /home/appuser/.rvm/gems/ruby-${RUBY_VERSION}/bin:/home/appuser/.rvm/gem
 # Explicitly set ownership to appuser, even though appuser is the current user.
 COPY --chown=appuser:appuser Gemfile Gemfile.lock ./
 
-# Explicitly set permissions for Gemfile and Gemfile.lock to ensure appuser can write.
-# This is a workaround for potential CI permission issues with Gemfile.lock.
-# The primary solution is to ensure Gemfile.lock is up-to-date in the repository.
-RUN sudo chown appuser:appuser Gemfile Gemfile.lock && \
-    sudo chmod u+w Gemfile Gemfile.lock
+# The chown/chmod commands below were specific workarounds and are now redundant
+# because the later `USER root` followed by `COPY --chown=appuser:appuser . .`
+# will correctly set ownership for all files, including Gemfile.lock,
+# making them owned by appuser within the image.
 
 # Install application gems using Bundler.
 # Ensure RVM environment is loaded using `bash -l -c`.
