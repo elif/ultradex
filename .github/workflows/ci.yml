@@ -1,12 +1,15 @@
 name: CI
 
 on:
-  push:
-    branches: [ main ]
+  create: # Trigger on branch or tag creation
 
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.cpr.outputs.pull-request-number }}
+      pr_url: ${{ steps.cpr.outputs.pull-request-url }}
+      branch_name: ${{ github.ref_name }} # Capture branch name
 
     steps:
       - name: Checkout code
@@ -17,92 +20,94 @@ jobs:
         run: |
           set -e # Ensure script exits on first error
           echo "Running docker compose build..."
-          docker compose build > $GITHUB_WORKSPACE/docker_build_output.log 2>&1
-          BUILD_EXIT_CODE=$?
-          if [ $BUILD_EXIT_CODE -ne 0 ]; then
-            echo "Docker compose build failed with exit code $BUILD_EXIT_CODE. Full log:"
-            cat $GITHUB_WORKSPACE/docker_build_output.log
-            exit $BUILD_EXIT_CODE
-          fi
+          docker compose build
           echo "Docker compose build successful."
 
           echo "Running docker compose up -d..."
-          docker compose up -d > $GITHUB_WORKSPACE/docker_up_output.log 2>&1
-          UP_EXIT_CODE=$?
-          if [ $UP_EXIT_CODE -ne 0 ]; then
-            echo "Docker compose up -d failed with exit code $UP_EXIT_CODE. Full log:"
-            cat $GITHUB_WORKSPACE/docker_up_output.log
-            # Also output build log for context if up fails, as it might be related
-            echo "--- Docker Build Log (for context as 'up' failed) ---"
-            cat $GITHUB_WORKSPACE/docker_build_output.log
-            exit $UP_EXIT_CODE
-          fi
+          docker compose up -d
           echo "Docker compose up -d successful."
 
       - name: Prepare test database
         working-directory: ./ultradex
         run: |
           echo "Waiting for services to be healthy..."
-          # Add a short delay or a more sophisticated wait for services like PostgreSQL
-          # For now, a simple sleep. This might need refinement.
-          sleep 20
+          sleep 20 # Simple delay, might need refinement for robust service readiness
           docker compose exec -T app bin/rails db:setup
 
       - name: Run RSpec tests
+        id: rspec_tests
         working-directory: ./ultradex
         run: |
           docker compose exec -T app bundle exec rspec
 
-      - name: Output Failure Logs
-        if: failure()
-        working-directory: ./ultradex # pwd is $GITHUB_WORKSPACE/ultradex
-        run: |
-          BUILD_LOG_FILE="$GITHUB_WORKSPACE/docker_build_output.log"
-          UP_LOG_FILE="$GITHUB_WORKSPACE/docker_up_output.log"
-          PROCESSED_BUILD_OR_UP_ERROR=false
-
-          # Intentionally minimal echos now, only outputting found errors or final status.
-
-          if [ -f "$BUILD_LOG_FILE" ]; then
-            # Grep for critical errors, show only matching lines.
-            # Added 'npm: not found' directly based on observed failure.
-            if grep -E -i 'ERROR|failed to build|Step [0-9]+/[0-9]+ failed|failed to fetch|npm: not found|Could not resolve|unable to access' "$BUILD_LOG_FILE"; then
-              PROCESSED_BUILD_OR_UP_ERROR=true
-              echo "--- Relevant lines from Docker build log above ---"
-            else
-              # If specific grep fails, but file exists, show last N lines as a less specific fallback.
-              echo "No specific critical error markers found in Docker build log via grep. Displaying last 20 lines as fallback:"
-              tail -n 20 "$BUILD_LOG_FILE"
-              PROCESSED_BUILD_OR_UP_ERROR=true # Still consider it processed.
-            fi
-          fi
-
-          if [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ]; then
-            if [ -f "$UP_LOG_FILE" ]; then
-              if grep -E -i 'ERROR|Cannot start service|failed| unhealthy|exited with code' "$UP_LOG_FILE"; then
-                PROCESSED_BUILD_OR_UP_ERROR=true
-                echo "--- Relevant lines from Docker up log above ---"
-              else
-                echo "No specific critical error markers found in Docker up log via grep. Displaying last 20 lines as fallback:"
-                tail -n 20 "$UP_LOG_FILE"
-                PROCESSED_BUILD_OR_UP_ERROR=true
-              fi
-            fi
-          fi
-
-          if [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ]; then
-            echo "No critical errors found in build/up logs, or logs not found. Checking application service ('app') logs..."
-            if [ -n "$(docker compose ps -q app)" ] || docker compose ps app | grep -iq 'exited'; then
-              # RSpec logs benefit from some context.
-              docker compose logs app | grep -E -A 30 'Failures:|Failure/Error:|Failed examples:' \
-              || (echo "No RSpec failure markers found in 'app' service logs. Dumping last 50 lines of 'app' service as fallback." && docker compose logs app | tail -n 50)
-            else
-              echo "The 'app' service does not appear to have been active. No application logs to display."
-            fi
-          fi
+      - name: Create Pull Request
+        id: cpr
+        if: github.ref_type == 'branch' && github.ref_name != 'main' # Only run for branches, not tags, and not for main branch
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: Create PR for ${{ github.ref_name }}
+          branch: ${{ github.ref_name }} # The branch that was just created
+          base: main # Target branch for the PR
+          title: 'PR for branch: ${{ github.ref_name }}'
+          body: |
+            Automated PR created for branch `${{ github.ref_name }}`.
+            Action run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          labels: automated pr
+          draft: false
 
       - name: Stop Docker services
         if: always() # Ensure services are stopped even if previous steps fail
         working-directory: ./ultradex
         run: |
           docker compose down
+
+  comment_on_pr:
+    runs-on: ubuntu-latest
+    needs: build_and_test
+    if: always() && needs.build_and_test.outputs.pr_number != '' # Only run if a PR was created
+
+    steps:
+      - name: Checkout code # Needed for github-script context if accessing local files, though not strictly here
+        uses: actions/checkout@v4
+
+      - name: Comment on Pull Request
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = ${{ needs.build_and_test.outputs.pr_number }};
+            const prUrl = "${{ needs.build_and_test.outputs.pr_url }}";
+            const branchName = "${{ needs.build_and_test.outputs.branch_name }}";
+            const runId = ${{ github.run_id }};
+            const repo = context.repo;
+            const runUrl = `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${runId}`;
+            let commentBody = `CI Run for branch **${branchName}** completed.\n\n`;
+
+            commentBody += `**Workflow Status:** ${context.payload.workflow_run ? (context.payload.workflow_run.conclusion === 'success' ? '✅ Success' : '❌ Failure') : (job.status === 'success' ? '✅ Success' : '❌ Failure') }\n`;
+            commentBody += `**Pull Request:** ${prUrl || 'PR not created or URL unavailable.'}\n`;
+            commentBody += `**Action Run Details:** [View Workflow Run](${runUrl})\n\n`;
+
+            // Attempt to get job status from the build_and_test job
+            // This is a bit indirect; ideally, you'd pass specific test results if needed.
+            // For now, a general status based on the 'needs' context.
+            const buildTestJob = (await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            })).data.jobs.find(job => job.name === 'build_and_test');
+
+            if (buildTestJob) {
+              commentBody += `**Build and Test Job Status:** ${buildTestJob.conclusion === 'success' ? '✅ Succeeded' : `❌ ${buildTestJob.conclusion}`}\n`;
+              // You could add more details here, e.g., link to specific steps or extract test summaries if they were output as artifacts.
+            } else {
+              commentBody += "Could not retrieve detailed status for the 'build_and_test' job.\n";
+            }
+
+            await github.rest.issues.createComment({
+              owner: repo.owner,
+              repo: repo.repo,
+              issue_number: prNumber,
+              body: commentBody
+            });
+            console.log(`Commented on PR #${prNumber}. Body:\n${commentBody}`);

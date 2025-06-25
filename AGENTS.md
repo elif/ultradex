@@ -31,6 +31,13 @@ This document provides guidelines for AI agents contributing to the UltrAdex pro
 *   Use `create_file_with_block` for new files.
 *   Always provide clear and concise commit messages when using `submit`.
 
+## Commit Messages
+
+*   **Length:** Keep commit messages to a maximum of 30 words.
+*   **Formatting:** Do not use any special formatting (like Markdown) in commit messages.
+*   **Punctuation:** Avoid punctuation (e.g., periods, commas, exclamation marks).
+*   **Language:** Use plain English only.
+
 ## Working with the Dockerized Environment
 
 This project uses Docker and Docker Compose for its development environment. This ensures all services (Rails app, PostgreSQL database, Redis) are running consistently.
