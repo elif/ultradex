@@ -100,8 +100,8 @@ ENV PATH /home/appuser/.rvm/gems/ruby-${RUBY_VERSION}/bin:/home/appuser/.rvm/gem
 # Copy Gemfile and Gemfile.lock to leverage Docker cache.
 # These files define Ruby dependencies. Gemfile.lock is crucial for reproducible builds.
 # Ensure Gemfile.lock is committed to your repository.
-# Ownership is already appuser as we switched user.
-COPY Gemfile Gemfile.lock ./
+# Explicitly set ownership to appuser, even though appuser is the current user.
+COPY --chown=appuser:appuser Gemfile Gemfile.lock ./
 
 # Install application gems using Bundler.
 # Ensure RVM environment is loaded using `bash -l -c`.
