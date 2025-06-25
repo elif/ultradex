@@ -65,13 +65,17 @@ jobs:
           echo '--- Running as appuser (via su appuser -c) ---'; \
           whoami; \
           pwd; \
-          echo 'Listing /usr/src/app as appuser:'; \
-          ls -la /usr/src/app; \
-          echo 'appuser environment variables:'; \
+          echo 'Sourcing RVM...'; \
+          source /home/appuser/.rvm/scripts/rvm && echo 'RVM Sourced. Ruby version:' && ruby -v || echo 'RVM Sourcing FAILED or ruby -v failed'; \
+          echo 'Attempting cd /usr/src/app as appuser (after RVM source)...'; \
+          cd /usr/src/app && echo 'cd /usr/src/app successful. New pwd:' && pwd || echo 'cd /usr/src/app FAILED'; \
+          echo 'Listing /usr/src/app as appuser (after cd and RVM source):'; \
+          ls -la; \
+          echo 'appuser environment variables (after cd and RVM source):'; \
           env; \
-          echo 'Attempting to touch Gemfile.lock as appuser:'; \
-          touch /usr/src/app/Gemfile.lock && echo 'Touch Gemfile.lock successful' || echo 'Touch Gemfile.lock FAILED'; \
-          echo 'Checking bundler paths as appuser:'; \
+          echo 'Attempting to touch Gemfile.lock as appuser (after cd and RVM source):'; \
+          touch Gemfile.lock && echo 'Touch Gemfile.lock successful' || echo 'Touch Gemfile.lock FAILED'; \
+          echo 'Checking bundler paths as appuser (after cd and RVM source):'; \
           bundle_path=\\\$(bundle show bundler); \
           echo \\\"Bundler path: \\\$bundle_path\\\"; \
           bundle check || echo 'Bundle check FAILED'; \
@@ -82,7 +86,7 @@ jobs:
       - name: Run RSpec tests
         working-directory: ./ultradex
         run: |
-          docker compose exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; su appuser -c 'source /home/appuser/.rvm/scripts/rvm && bundle exec rspec'"
+          docker compose exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; su appuser -c 'source /home/appuser/.rvm/scripts/rvm && cd /usr/src/app && bundle exec rspec'"
 
       - name: Output Failure Logs
         if: failure()
