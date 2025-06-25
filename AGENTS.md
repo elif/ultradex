@@ -29,7 +29,7 @@ This document provides guidelines for AI agents contributing to the UltrAdex pro
 *   When modifying existing files, use `replace_with_git_merge_diff` for targeted changes.
 *   Use `overwrite_file_with_block` only when replacing an entire file's content is intended and appropriate.
 *   Use `create_file_with_block` for new files.
-*   Always provide clear and concise commit messages when using `submit`.
+*   Commit messages for `submit` must be plain text, maximum 30 words, with no special formatting.
 
 ## Working with the Dockerized Environment
 
