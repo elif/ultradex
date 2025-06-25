@@ -17,7 +17,7 @@ jobs:
         run: |
           set -e # Ensure script exits on first error
           echo "Running docker compose build..."
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml build > $GITHUB_WORKSPACE/docker_build_output.log 2>&1
+          docker compose build > $GITHUB_WORKSPACE/docker_build_output.log 2>&1
           BUILD_EXIT_CODE=$?
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "Docker compose build failed with exit code $BUILD_EXIT_CODE. Full log:"
@@ -27,7 +27,7 @@ jobs:
           echo "Docker compose build successful."
 
           echo "Running docker compose up -d..."
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d > $GITHUB_WORKSPACE/docker_up_output.log 2>&1
+          docker compose up -d > $GITHUB_WORKSPACE/docker_up_output.log 2>&1
           UP_EXIT_CODE=$?
           if [ $UP_EXIT_CODE -ne 0 ]; then
             echo "Docker compose up -d failed with exit code $UP_EXIT_CODE. Full log:"
@@ -39,19 +39,10 @@ jobs:
           fi
           echo "Docker compose up -d successful."
 
-      - name: Prepare test database
-        working-directory: ./ultradex
-        run: |
-          echo "Waiting for services to be healthy..."
-          # Add a short delay or a more sophisticated wait for services like PostgreSQL
-          # For now, a simple sleep. This might need refinement.
-          sleep 20
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T app bin/rails db:setup
-
       - name: Run RSpec tests
         working-directory: ./ultradex
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T app bundle exec rspec
+          docker compose exec -T app bundle exec rspec
 
       - name: Output Failure Logs
         if: failure()
@@ -92,10 +83,10 @@ jobs:
 
           if [ "$PROCESSED_BUILD_OR_UP_ERROR" = false ]; then
             echo "No critical errors found in build/up logs, or logs not found. Checking application service ('app') logs..."
-            if [ -n "$(docker compose -f docker-compose.yml -f docker-compose.ci.yml ps -q app)" ] || docker compose -f docker-compose.yml -f docker-compose.ci.yml ps app | grep -iq 'exited'; then
+            if [ -n "$(docker compose ps -q app)" ] || docker compose ps app | grep -iq 'exited'; then
               # RSpec logs benefit from some context.
-              docker compose -f docker-compose.yml -f docker-compose.ci.yml logs app | grep -E -A 30 'Failures:|Failure/Error:|Failed examples:' \
-              || (echo "No RSpec failure markers found in 'app' service logs. Dumping last 50 lines of 'app' service as fallback." && docker compose -f docker-compose.yml -f docker-compose.ci.yml logs app | tail -n 50)
+              docker compose logs app | grep -E -A 30 'Failures:|Failure/Error:|Failed examples:' \
+              || (echo "No RSpec failure markers found in 'app' service logs. Dumping last 50 lines of 'app' service as fallback." && docker compose logs app | tail -n 50)
             else
               echo "The 'app' service does not appear to have been active. No application logs to display."
             fi
@@ -105,4 +96,4 @@ jobs:
         if: always() # Ensure services are stopped even if previous steps fail
         working-directory: ./ultradex
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml down
+          docker compose down

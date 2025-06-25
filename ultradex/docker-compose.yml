@@ -7,7 +7,9 @@ services:
     # If you need to override or run one-off commands:
     # command: bundle exec rails server -b 0.0.0.0
     volumes:
-      - .:/usr/src/app # Mount current directory to app's workdir for live code changes
+      # The host mount for application code (.:/usr/src/app) is removed from here.
+      # It will be added back for local development via docker-compose.override.yml.
+      # This makes the default CI-friendly, using the code baked into the image.
       - bundle_cache:/usr/local/bundle # Persist bundle cache
       # If you have other persisted volumes for the app, define them here.
     ports:

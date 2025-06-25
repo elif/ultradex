@@ -1,0 +1,8 @@
+version: '3.8' # Match the version of your main docker-compose.yml if specified
+services:
+  app:
+    volumes:
+      # This adds back the host volume mount for the application code,
+      # enabling live reloading during local development.
+      # Docker Compose automatically merges this with the main docker-compose.yml.
+      - .:/usr/src/app
