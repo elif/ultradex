@@ -7,7 +7,7 @@ FROM redis/redis-stack:latest AS base
 # Set ARGs for versions to easily update them at build time
 ARG RUBY_VERSION=3.1.2
 ARG NODE_MAJOR=18
-ARG BUNDLER_VERSION="~> 2.3.0" # Match typical Rails 7 bundler version
+ARG BUNDLER_VERSION="2.3.26" # Pin to a specific version to avoid resolver issues
 
 # Switch to root user for system installations
 USER root
