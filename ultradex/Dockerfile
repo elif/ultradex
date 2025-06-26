@@ -116,9 +116,6 @@ RUN /bin/bash -l -c "bundle install --jobs \"$(nproc)\" --retry 3"
 # and the entrypoint script, ensuring correct ownership and permissions for system locations.
 USER root
 
-# Explicitly copy config/environment.rb to ensure it's present
-COPY --chown=appuser:appuser config/environment.rb ./config/
-
 # Copy the rest of the application code into the container.
 # The --chown flag ensures all application files are owned by appuser.
 COPY --chown=appuser:appuser . .
