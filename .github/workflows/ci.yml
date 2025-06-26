@@ -43,87 +43,85 @@ jobs:
         working-directory: ./ultradex
         run: |
           docker compose -f docker-compose.yml exec -T app sh -c '
-          set -e;
-          echo "--- Debugging Container Environment ---";
+          echo "--- Debugging Container Environment (non-blocking) ---";
           echo "=== Phase 1: Running as current user (\$(whoami)) ===";
           pwd;
           echo "Listing /usr/src/app:";
-          ls -la /usr/src/app;
+          ls -la /usr/src/app || true;
           echo "Stat /usr/src/app/config:";
-          stat /usr/src/app/config || echo "ALERT: stat /usr/src/app/config failed";
+          stat /usr/src/app/config || echo "DEBUG ALERT: stat /usr/src/app/config failed";
           echo "Stat /usr/src/app/config/environment.rb:";
-          stat /usr/src/app/config/environment.rb || echo "ALERT: stat /usr/src/app/config/environment.rb failed";
+          stat /usr/src/app/config/environment.rb || echo "DEBUG ALERT: stat /usr/src/app/config/environment.rb failed";
           echo "Stat /usr/src/app/spec/rails_helper.rb:";
-          stat /usr/src/app/spec/rails_helper.rb || echo "ALERT: stat /usr/src/app/spec/rails_helper.rb failed";
+          stat /usr/src/app/spec/rails_helper.rb || echo "DEBUG ALERT: stat /usr/src/app/spec/rails_helper.rb failed";
           echo "Mount info for /usr/src/app:";
-          df -h /usr/src/app;
-          mount | grep /usr/src/app || echo "INFO: /usr/src/app not found in mount output";
+          df -h /usr/src/app || true;
+          mount | grep /usr/src/app || echo "DEBUG INFO: /usr/src/app not found in mount output";
           echo "";
-          echo "=== Phase 2: Switching to appuser ===";
+          echo "=== Phase 2: Switching to appuser (attempt) ===";
           su appuser -c "
-            set -e;
             echo \"--- Running as appuser (\$(whoami)) ---\";
             echo \"Initial PWD for appuser: \$(pwd)\";
             echo \"Attempting: cd /usr/src/app\";
-            cd /usr/src/app || { echo \"ALERT: \$(whoami) FAILED to cd to /usr/src/app\"; exit 1; };
+            cd /usr/src/app || { echo \"DEBUG ALERT: \$(whoami) FAILED to cd to /usr/src/app\"; exit 0; }; # exit 0 to not fail parent
             echo \"PWD after cd: \$(pwd)\";
             echo \\\"\\\";
             echo \"--- File & Directory Checks (as \$(whoami) in \$(pwd)) ---\";
             echo \"Listing current directory (\$(pwd)) with ls -la .:\";
-            ls -la .;
+            ls -la . || true;
             echo \"Listing ./config (ls -la ./config):\";
-            ls -la ./config || echo \"ALERT: ./config not found or not listable by \$(whoami)\";
+            ls -la ./config || echo \"DEBUG ALERT: ./config not found or not listable by \$(whoami)\";
             echo \"Listing ./spec (ls -la ./spec):\";
-            ls -la ./spec || echo \"ALERT: ./spec not found or not listable by \$(whoami)\";
+            ls -la ./spec || echo \"DEBUG ALERT: ./spec not found or not listable by \$(whoami)\";
             echo \\\"\\\";
             echo \"Checking ./config/environment.rb with ls -laL ./config/environment.rb (dereference symlinks):\";
-            ls -laL ./config/environment.rb || echo \"ALERT: ./config/environment.rb not found (ls -laL) by \$(whoami)\";
+            ls -laL ./config/environment.rb || echo \"DEBUG ALERT: ./config/environment.rb not found (ls -laL) by \$(whoami)\";
             echo \"Stat ./config/environment.rb:\";
-            stat ./config/environment.rb || echo \"ALERT: stat ./config/environment.rb failed for \$(whoami)\";
+            stat ./config/environment.rb || echo \"DEBUG ALERT: stat ./config/environment.rb failed for \$(whoami)\";
             echo \"Head of ./config/environment.rb (first 5 lines):\";
-            head -n 5 ./config/environment.rb || echo \"ALERT: head ./config/environment.rb failed for \$(whoami)\";
+            head -n 5 ./config/environment.rb || echo \"DEBUG ALERT: head ./config/environment.rb failed for \$(whoami)\";
             echo \\\"\\\";
             echo \"Checking ./spec/rails_helper.rb with ls -laL ./spec/rails_helper.rb:\";
-            ls -laL ./spec/rails_helper.rb || echo \"ALERT: ./spec/rails_helper.rb not found (ls -laL) by \$(whoami)\";
+            ls -laL ./spec/rails_helper.rb || echo \"DEBUG ALERT: ./spec/rails_helper.rb not found (ls -laL) by \$(whoami)\";
             echo \"Stat ./spec/rails_helper.rb:\";
-            stat ./spec/rails_helper.rb || echo \"ALERT: stat ./spec/rails_helper.rb failed for \$(whoami)\";
+            stat ./spec/rails_helper.rb || echo \"DEBUG ALERT: stat ./spec/rails_helper.rb failed for \$(whoami)\";
             echo \"Head of ./spec/rails_helper.rb (first 5 lines):\";
-            head -n 5 ./spec/rails_helper.rb || echo \"ALERT: head ./spec/rails_helper.rb failed for \$(whoami)\";
+            head -n 5 ./spec/rails_helper.rb || echo \"DEBUG ALERT: head ./spec/rails_helper.rb failed for \$(whoami)\";
             echo \"Grep for require_relative in ./spec/rails_helper.rb:\";
-            grep '\''require_relative'\'' ./spec/rails_helper.rb || echo \"ALERT: require_relative not found in spec/rails_helper.rb by \$(whoami)\";
+            grep '\''require_relative'\'' ./spec/rails_helper.rb || echo \"DEBUG ALERT: require_relative not found in spec/rails_helper.rb by \$(whoami)\";
             echo \\\"\\\";
             echo \"--- Environment Checks (as \$(whoami) after attempting to source RVM) ---\";
             echo \"Sourcing RVM (/home/appuser/.rvm/scripts/rvm)...\";
             if [ -f /home/appuser/.rvm/scripts/rvm ]; then
               chmod +x /home/appuser/.rvm/scripts/rvm;
-              source /home/appuser/.rvm/scripts/rvm || echo \"ALERT: Failed to source RVM for \$(whoami)\";
+              source /home/appuser/.rvm/scripts/rvm || echo \"DEBUG ALERT: Failed to source RVM for \$(whoami)\";
             else
-              echo \"ALERT: RVM script /home/appuser/.rvm/scripts/rvm not found!\";
+              echo \"DEBUG ALERT: RVM script /home/appuser/.rvm/scripts/rvm not found!\";
             fi;
             echo \"RVM Info (env | grep RVM):\";
-            env | grep RVM || echo \"INFO: RVM env vars not found\";
+            env | grep RVM || echo \"DEBUG INFO: RVM env vars not found\";
             echo \"Ruby version (ruby -v):\";
-            ruby -v || echo \"ALERT: ruby -v failed for \$(whoami)\";
+            ruby -v || echo \"DEBUG ALERT: ruby -v failed for \$(whoami)\";
             echo \"Bundler version (bundle -v):\";
-            bundle -v || echo \"ALERT: bundle -v failed for \$(whoami)\";
+            bundle -v || echo \"DEBUG ALERT: bundle -v failed for \$(whoami)\";
             echo \"GEM_HOME: \$GEM_HOME\";
             echo \"GEM_PATH: \$GEM_PATH\";
             echo \"Ruby Load Path (\\\$LOAD_PATH) - joined by newlines:\";
-            ruby -e '\''puts \$LOAD_PATH.join(\"\\n\")'\'' || echo \"ALERT: Failed to get Ruby \\\$LOAD_PATH for \$(whoami)\";
+            ruby -e '\''puts \$LOAD_PATH.join(\"\\n\")'\'' || echo \"DEBUG ALERT: Failed to get Ruby \\\$LOAD_PATH for \$(whoami)\";
             echo \"Bundle check:\";
-            bundle check || echo \"ALERT: bundle check failed for \$(whoami)\";
+            bundle check || echo \"DEBUG ALERT: bundle check failed for \$(whoami)\";
             echo \\\"\\\";
             echo \"--- Path Resolution Test (as \$(whoami) from /usr/src/app/spec) ---\";
             echo \"Attempting to resolve path: Dir.chdir(\\\"/usr/src/app/spec\\\"); puts File.expand_path(\\\"../config/environment.rb\\\")\";
-            ruby -e '\''Dir.chdir(\"/usr/src/app/spec\") do; puts File.expand_path(\"../config/environment.rb\"); end'\'' || echo \"ALERT: Ruby test for resolving path failed for \$(whoami)\";
+            ruby -e '\''Dir.chdir(\"/usr/src/app/spec\") do; puts File.expand_path(\"../config/environment.rb\"); end'\'' || echo \"DEBUG ALERT: Ruby test for resolving path failed for \$(whoami)\";
             echo \"--- End of appuser debug ---\";
-          "
+          " || echo "DEBUG: su appuser -c command failed but continuing main script..."
           '
 
       - name: Run RSpec tests
         working-directory: ./ultradex
         run: |
-          docker compose -f docker-compose.yml exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; su appuser -c 'source /home/appuser/.rvm/scripts/rvm && cd /usr/src/app && bundle exec rspec'"
+          docker compose -f docker-compose.yml exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; runuser -u appuser -- sh -c 'source /home/appuser/.rvm/scripts/rvm && cd /usr/src/app && bundle exec rspec'"
 
       - name: Output Failure Logs
         if: failure()
