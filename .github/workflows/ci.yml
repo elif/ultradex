@@ -12,18 +12,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check for config/environment.rb in CI checkout
-        run: |
-          echo "Listing ./ultradex/config on CI runner:"
-          ls -la ./ultradex/config
-          echo "Checking for ./ultradex/config/environment.rb on CI runner:"
-          if [ -f "./ultradex/config/environment.rb" ]; then
-            echo "./ultradex/config/environment.rb FOUND in CI checkout."
-          else
-            echo "CRITICAL: ./ultradex/config/environment.rb NOT FOUND in CI checkout!"
-            exit 1
-          fi
-
       - name: Set up Docker Compose and Build services
         working-directory: ./ultradex
         run: |
