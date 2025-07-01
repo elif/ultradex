@@ -124,16 +124,14 @@ jobs:
           docker compose -f docker-compose.yml exec -T --user root app bash -c "\
           cd /usr/src/app && \
           chmod 777 Gemfile.lock || true; \
-          runuser -u appuser -- bash -c '\
-            echo \"Sourcing RVM...\"; \
-            source /home/appuser/.rvm/scripts/rvm; \
-            echo \"Using RVM Ruby 3.1.2...\"; \
-            rvm use 3.1.2 --default; \
+          runuser -u appuser -- rvm 3.1.2 exec --create bash -c '\
+            echo \"Running commands within rvm 3.1.2 exec environment\"; \
             echo \"RVM Ruby version: \$(ruby -v)\"; \
             echo \"GEM_HOME: \$GEM_HOME\"; \
             echo \"GEM_PATH: \$GEM_PATH\"; \
+            echo \"which ruby: \$(which ruby)\"; \
             echo \"Running bundle install...\"; \
-            bundle install; \
+            bundle install --verbose; \
             echo \"Running bundle exec rspec...\"; \
             bundle exec rspec \
           '"
