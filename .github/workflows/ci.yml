@@ -121,7 +121,29 @@ jobs:
       - name: Run RSpec tests
         working-directory: ./ultradex
         run: |
-          docker compose -f docker-compose.yml exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; runuser -u appuser -- bash -c 'source /home/appuser/.rvm/scripts/rvm && cd /usr/src/app && bundle exec rspec'"
+          docker compose -f docker-compose.yml exec -T --user root app bash -c "\
+          cd /usr/src/app && \
+          chmod 777 Gemfile.lock || true; \
+          runuser -u appuser -- bash -c '\
+            echo \"Sourcing RVM...\"; \
+            source /home/appuser/.rvm/scripts/rvm; \
+            echo \"Using RVM Ruby 3.1.2...\"; \
+            rvm use 3.1.2 --default; \
+            echo \"RVM Ruby version: \$(ruby -v)\"; \
+            echo \"GEM_HOME: \$GEM_HOME\"; \
+            echo \"GEM_PATH: \$GEM_PATH\"; \
+            echo \"Running bundle install...\"; \
+            bundle install; \
+            echo \"Running bundle exec rspec...\"; \
+            bundle exec rspec \
+          '"
+
+      - name: Display Gemfile.lock
+        if: always()
+        working-directory: ./ultradex
+        run: |
+          echo "--- Gemfile.lock content from /usr/src/app/Gemfile.lock ---"
+          docker compose -f docker-compose.yml exec -T app cat /usr/src/app/Gemfile.lock || echo "Failed to cat Gemfile.lock (maybe tests failed early?)"
 
       - name: Output Failure Logs
         if: failure()
