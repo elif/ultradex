@@ -121,7 +121,7 @@ jobs:
       - name: Run RSpec tests
         working-directory: ./ultradex
         run: |
-          docker compose -f docker-compose.yml exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; runuser -u appuser -- sh -c 'source /home/appuser/.rvm/scripts/rvm && cd /usr/src/app && bundle exec rspec'"
+          docker compose -f docker-compose.yml exec -T --user root app sh -c "cd /usr/src/app && chmod 777 Gemfile.lock || true; runuser -u appuser -- bash -c 'source /home/appuser/.rvm/scripts/rvm && cd /usr/src/app && bundle exec rspec'"
 
       - name: Output Failure Logs
         if: failure()
